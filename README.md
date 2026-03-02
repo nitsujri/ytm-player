@@ -60,6 +60,16 @@ choco install mpv
 
 ### 2. Install ytm-player
 
+#### Arch Linux / CachyOS / EndeavourOS / Manjaro (AUR)
+
+```bash
+yay -S ytm-player-git
+```
+
+Or with any other AUR helper. Package: [ytm-player-git](https://aur.archlinux.org/packages/ytm-player-git)
+
+#### From source (all platforms)
+
 ```bash
 git clone https://github.com/peternaame-boop/ytm-player.git
 cd ytm-player
