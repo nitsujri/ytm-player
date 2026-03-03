@@ -22,7 +22,6 @@ from ytm_player.config.paths import (
     CONFIG_DIR,
     SECURE_FILE_MODE,
 )
-from ytm_player.config.settings import get_settings
 from ytm_player.services.yt_dlp_options import normalize_cookiefile
 
 logger = logging.getLogger(__name__)
@@ -82,9 +81,15 @@ def _patch_yt_dlp_browsers() -> None:
 class AuthManager:
     """Manages YouTube Music authentication via browser cookie extraction."""
 
-    def __init__(self, config_dir: Path = CONFIG_DIR, auth_file: Path = AUTH_FILE) -> None:
+    def __init__(
+        self,
+        config_dir: Path = CONFIG_DIR,
+        auth_file: Path = AUTH_FILE,
+        cookies_file: str | None = None,
+    ) -> None:
         self._config_dir = config_dir
         self._auth_file = auth_file
+        self._cookies_file = normalize_cookiefile(cookies_file)
 
     @property
     def auth_file(self) -> Path:
@@ -152,9 +157,8 @@ class AuthManager:
         Called when the app detects an auth failure at runtime. Returns
         True if fresh cookies were extracted and validation passed.
         """
-        cookies_file = normalize_cookiefile(get_settings().yt_dlp.cookies_file)
-        if cookies_file and self._extract_and_save_from_cookies_file(Path(cookies_file)):
-            return self.validate()
+        if self._cookies_file and self._refresh_from_cookies_file(Path(self._cookies_file)):
+            return True
 
         browser = self._detect_browser()
         if browser is None:
@@ -176,10 +180,9 @@ class AuthManager:
         print("=" * 60)
         print()
 
-        cookies_file = normalize_cookiefile(get_settings().yt_dlp.cookies_file)
-        if cookies_file:
-            print(f"  Trying cookies file: {cookies_file}")
-            if self._extract_and_save_from_cookies_file(Path(cookies_file)):
+        if self._cookies_file:
+            print(f"  Trying cookies file: {self._cookies_file}")
+            if self._refresh_from_cookies_file(Path(self._cookies_file)):
                 return True
             print("  Cookies file extraction failed. Falling back to browser/manual setup.")
             print()
@@ -223,6 +226,30 @@ class AuthManager:
                 continue
         return None
 
+    def _refresh_from_cookies_file(self, cookies_file: Path) -> bool:
+        """Refresh auth from cookies file without losing working credentials."""
+        backup: bytes | None = None
+        if self._auth_file.exists():
+            try:
+                backup = self._auth_file.read_bytes()
+            except OSError:
+                logger.debug("Could not backup existing auth file", exc_info=True)
+
+        if not self._extract_and_save_from_cookies_file(cookies_file):
+            return False
+
+        if self.validate():
+            return True
+
+        if backup is not None:
+            try:
+                self._auth_file.write_bytes(backup)
+                os.chmod(self._auth_file, SECURE_FILE_MODE)
+                logger.info("Restored previous auth after cookies file validation failure")
+            except OSError:
+                logger.warning("Failed to restore previous auth file", exc_info=True)
+        return False
+
     def _extract_and_save_from_cookies_file(self, cookies_file: Path) -> bool:
         """Extract YouTube cookies from a Netscape cookies.txt file and write auth.json."""
         if not cookies_file.exists():
@@ -236,7 +263,19 @@ class AuthManager:
             logger.warning("Failed to load cookies file %s: %s", cookies_file, exc)
             return False
 
-        yt_cookies = [c for c in jar if c.domain.endswith("youtube.com")]
+        try:
+            mode = cookies_file.stat().st_mode
+            if mode & 0o077:
+                logger.warning(
+                    "Cookies file has broad permissions (%o): %s",
+                    mode & 0o777,
+                    cookies_file,
+                )
+        except OSError:
+            logger.debug("Could not stat cookies file permissions: %s", cookies_file, exc_info=True)
+        yt_cookies = [
+            c for c in jar if c.domain == ".youtube.com" or c.domain.endswith(".youtube.com")
+        ]
         if not yt_cookies:
             logger.warning("No youtube.com cookies found in %s", cookies_file)
             return False
@@ -270,6 +309,7 @@ class AuthManager:
         return False
 
     def _save_youtube_cookies(self, cookies: list) -> bool:
+        """Persist YouTube cookie headers into auth.json."""
         cookie_str = "; ".join(f"{c.name}={c.value}" for c in cookies)
 
         # Verify we have the critical SAPISID cookie.
@@ -403,6 +443,6 @@ def _normalize_raw_headers(raw: str) -> str:
     return "\n".join(result)
 
 
-def get_auth_manager() -> AuthManager:
+def get_auth_manager(cookies_file: str | None = None) -> AuthManager:
     """Return a module-level AuthManager instance."""
-    return AuthManager()
+    return AuthManager(cookies_file=cookies_file)

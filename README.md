@@ -130,6 +130,8 @@ The wizard accepts multiple paste formats (Chrome alternating lines, Firefox `Na
 
 Credentials are stored in `~/.config/ytm-player/headers_auth.json` with `0o600` permissions.
 
+> ⚠️ `remote_components` allows fetching external JS components (npm/GitHub). Enable it only if you trust the source and network path.
+
 ## Usage
 
 ### TUI (interactive)
@@ -263,8 +265,8 @@ prefetch_next = true
 
 [yt_dlp]
 cookies_file = ""            # Optional: path to yt-dlp Netscape cookies.txt
-remote_components = ["ejs:github"]  # Optional: same as repeated --remote-components
-js_runtimes = ["bun"]              # Optional: converted to yt-dlp js_runtimes dict
+remote_components = ""       # Optional: ejs:npm/ejs:github (enables remote component downloads)
+js_runtimes = ""             # Optional: bun or bun:/path/to/bun (also node/quickjs forms)
 
 [ui]
 album_art = true
