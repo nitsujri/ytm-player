@@ -18,8 +18,13 @@ from textual.widgets import Input, Label, ListItem, ListView, Static
 from ytm_player.config.keymap import Action
 from ytm_player.config.settings import get_settings
 from ytm_player.ui.widgets.track_table import TrackTable
-from ytm_player.utils.formatting import normalize_tracks
-from ytm_player.utils.formatting import copy_to_clipboard, extract_artist, get_video_id, truncate
+from ytm_player.utils.formatting import (
+    copy_to_clipboard,
+    extract_artist,
+    get_video_id,
+    normalize_tracks,
+    truncate,
+)
 
 logger = logging.getLogger(__name__)
 
