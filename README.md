@@ -581,6 +581,8 @@ max_size_mb = 512
 
 MIT — see [LICENSE](LICENSE).
 
+---
+
 ## Changelog
 
 ### v1.4.0 (2026-03-07)
@@ -590,6 +592,8 @@ MIT — see [LICENSE](LICENSE).
 
 **Fixes**
 - Documented how to install optional features for AUR users — pip doesn't work on Arch due to PEP 668 (fixes [#13](https://github.com/peternaame-boop/ytm-player/issues/13))
+
+---
 
 ### v1.3.6 (2026-03-05)
 
