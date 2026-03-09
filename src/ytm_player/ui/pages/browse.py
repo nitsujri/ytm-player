@@ -767,7 +767,9 @@ class BrowsePage(Widget):
         playlist_id = item.get("playlistId") or item.get("audioPlaylistId")
 
         if result_type in ("song", "video", "flat_song") or video_id:
-            await self.app.play_track(item)
+            normalized_tracks = normalize_tracks([item])
+            track_to_play = normalized_tracks[0] if normalized_tracks else item
+            await self.app.play_track(track_to_play)
         elif result_type in ("album", "single"):
             if browse_id:
                 await self.app.navigate_to("context", context_type="album", context_id=browse_id)
