@@ -86,7 +86,8 @@ def _build_actions(item: dict[str, Any], item_type: str) -> list[tuple[str, str]
 
         # Only show "Go to Album" when album info is available.
         if action_id == "go_to_album":
-            if not item.get("album_id") and not item.get("album", {}).get("id"):
+            album = item.get("album")
+            if not item.get("album_id") and not (isinstance(album, dict) and album.get("id")):
                 continue
 
         result.append((action_id, label))

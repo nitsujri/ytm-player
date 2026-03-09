@@ -763,9 +763,7 @@ class BrowsePage(Widget):
         elif playlist_id:
             # Shelves like "Mixed for you", "Listen again" radio entries, mixes etc.
             # have a playlistId but no resultType.
-            await self.app.navigate_to(
-                "context", context_type="playlist", context_id=playlist_id
-            )
+            await self.app.navigate_to("context", context_type="playlist", context_id=playlist_id)
         elif browse_id:
             # Fallback: treat any remaining browseId as an album/playlist context.
             await self.app.navigate_to("context", context_type="album", context_id=browse_id)

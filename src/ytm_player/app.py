@@ -463,11 +463,13 @@ class YTMPlayerApp(App):
         # Restore queue from last session (before enabling shuffle so the
         # shuffle order is built from a populated queue).
         from ytm_player.utils.formatting import normalize_tracks
+
         saved_tracks = state.get("queue_tracks", [])
         if saved_tracks and isinstance(saved_tracks, list):
-            self.queue.add_multiple(normalize_tracks(saved_tracks))
+            normalized = normalize_tracks(saved_tracks)
+            self.queue.add_multiple(normalized)
             saved_index = state.get("queue_index", 0)
-            if isinstance(saved_index, int) and 0 <= saved_index < len(saved_tracks):
+            if isinstance(saved_index, int) and 0 <= saved_index < len(normalized):
                 self.queue.jump_to(saved_index)
 
         if state.get("shuffle", False):
@@ -1280,6 +1282,7 @@ class YTMPlayerApp(App):
         self.notify("Loading radio suggestions...", timeout=3)
         try:
             from ytm_player.utils.formatting import normalize_tracks
+
             radio_tracks = normalize_tracks(await self.ytmusic.get_radio(video_id))
             if radio_tracks:
                 self.queue.set_radio_tracks(radio_tracks)
@@ -1715,6 +1718,7 @@ class YTMPlayerApp(App):
         self.notify("Starting radio...", timeout=3)
         try:
             from ytm_player.utils.formatting import normalize_tracks
+
             radio_tracks = normalize_tracks(await self.ytmusic.get_radio(video_id))
         except Exception:
             logger.exception("Failed to start radio")
