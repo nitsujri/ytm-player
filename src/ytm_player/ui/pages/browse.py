@@ -617,12 +617,14 @@ class BrowsePage(Widget):
     def __init__(
         self,
         *,
+        active_tab: int | None = None,
         name: str | None = None,
         id: str | None = None,
         classes: str | None = None,
     ) -> None:
         super().__init__(name=name, id=id, classes=classes)
         self._tabs_loaded: set[int] = set()
+        self._restore_tab = active_tab
 
     def compose(self) -> ComposeResult:
         with Vertical():
@@ -634,8 +636,20 @@ class BrowsePage(Widget):
                 yield NewReleasesSection(id="section-releases")
 
     def on_mount(self) -> None:
-        # Load the default tab (For You).
-        self._load_tab(0)
+        if self._restore_tab and self._restore_tab > 0:
+            # Restore previously active tab — update tab bar CSS + lazy load.
+            tab_bar = self.query_one("#browse-tabs", BrowseTabBar)
+            tab_bar.switch_to(self._restore_tab)
+            self._restore_tab = None
+        else:
+            # Load the default tab (For You).
+            self._load_tab(0)
+
+    def get_nav_state(self) -> dict[str, Any]:
+        """Return state to preserve when navigating away."""
+        if self.active_tab > 0:
+            return {"active_tab": self.active_tab}
+        return {}
 
     # ------------------------------------------------------------------
     # Tab switching
@@ -737,7 +751,12 @@ class BrowsePage(Widget):
             await self.app.navigate_to("context", context_type="album", context_id=album_id)
 
     async def on_track_table_track_selected(self, event: TrackTable.TrackSelected) -> None:
-        """Play the selected chart track."""
+        """Play the selected chart track and populate the queue."""
+        event.stop()
+        table = self.query_one("#charts-table", TrackTable)
+        self.app.queue.clear()
+        self.app.queue.add_multiple(table.tracks)
+        self.app.queue.jump_to_real(event.index)
         await self.app.play_track(event.track)
 
     async def _navigate_item(self, item: dict[str, Any]) -> None:

@@ -377,6 +377,19 @@ class YTMusicService:
             logger.debug("delete_playlist failed for %r", playlist_id)
             return False
 
+    async def add_to_library(self, playlist_id: str) -> bool:
+        """Add an album or playlist to the user's library via rate_playlist(LIKE).
+
+        Args:
+            playlist_id: The album's or playlist's playlistId.
+        """
+        try:
+            await self._call(self.client.rate_playlist, playlist_id, "LIKE")
+            return True
+        except Exception:
+            logger.exception("add_to_library failed for %r", playlist_id)
+            return False
+
     async def remove_album_from_library(self, playlist_id: str) -> bool:
         """Remove an album from the user's library via rate_playlist(INDIFFERENT).
 

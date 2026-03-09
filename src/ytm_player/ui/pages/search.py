@@ -101,6 +101,7 @@ class SearchResultPanel(Widget):
         super().__init__(name=name, id=id, classes=classes)
         self._title = title
         self._items: list[dict[str, Any]] = []
+        self._right_click_pending = False
 
     def compose(self) -> ComposeResult:
         yield Label(self._title, classes="panel-title")
@@ -128,7 +129,7 @@ class SearchResultPanel(Widget):
     def _format_item(self, item: dict[str, Any]) -> str:
         """Build a human-readable label for a result item."""
         result_type = item.get("resultType", item.get("category", ""))
-        title = item.get("title", item.get("name", "Unknown"))
+        title = item.get("title") or item.get("name") or item.get("artist") or "Unknown"
 
         if result_type in ("album", "albums"):
             artist = extract_artist(item)
@@ -154,6 +155,9 @@ class SearchResultPanel(Widget):
 
     def on_list_view_selected(self, event: ListView.Selected) -> None:
         """Forward item activation to parent."""
+        if self._right_click_pending:
+            self._right_click_pending = False
+            return
         idx = event.list_view.index
         if idx is not None and 0 <= idx < len(self._items):
             panel_id = self.id or ""
@@ -178,6 +182,7 @@ class SearchResultPanel(Widget):
         """Handle right-click to emit ItemRightClicked."""
         if event.button == 3:
             event.stop()
+            self._right_click_pending = True
             idx = self._find_clicked_item_index(event)
             if idx is not None and 0 <= idx < len(self._items):
                 self.post_message(self.ItemRightClicked(self._items[idx], self.id or ""))
@@ -282,6 +287,11 @@ class SearchPage(Widget):
         padding: 0 1;
     }
 
+    #search-mode:hover {
+        background: $primary 30%;
+        border: solid $primary;
+    }
+
     #search-results {
         height: 1fr;
     }
@@ -362,6 +372,10 @@ class SearchPage(Widget):
     def __init__(
         self,
         *,
+        last_query: str | None = None,
+        search_mode: str | None = None,
+        search_results: dict[str, list[dict[str, Any]]] | None = None,
+        cursor_row: int | None = None,
         name: str | None = None,
         id: str | None = None,
         classes: str | None = None,
@@ -375,6 +389,12 @@ class SearchPage(Widget):
             "artists": [],
             "playlists": [],
         }
+        # State restoration from navigation.
+        self._restore_query = last_query
+        self._restore_mode = search_mode
+        self._restore_results = search_results
+        self._restore_cursor_row = cursor_row
+        self._restoring = False
 
     def compose(self) -> ComposeResult:
         with Vertical():
@@ -383,7 +403,7 @@ class SearchPage(Widget):
                     placeholder="Search YouTube Music...",
                     id="search-input",
                 )
-                yield Static("Music", id="search-mode")
+                yield Static("[red]▶[/red] Music", id="search-mode")
             yield SuggestionList(id="suggestion-overlay")
             yield Static("", id="loading-msg", classes="loading-indicator")
             with Horizontal(id="search-results"):
@@ -399,8 +419,35 @@ class SearchPage(Widget):
             yield SearchResultPanel("Playlists", id="playlists-panel")
 
     def on_mount(self) -> None:
-        settings = get_settings()
-        self.search_mode = settings.search.default_mode
+        if self._restore_mode:
+            self.search_mode = self._restore_mode
+        else:
+            settings = get_settings()
+            self.search_mode = settings.search.default_mode
+
+        # Update mode label to match.
+        mode_label = self.query_one("#search-mode", Static)
+        display = "[red]▶[/red] Music" if self.search_mode == "music" else "[red]▶[/red] All"
+        mode_label.update(display)
+
+        # Restore previous search results if navigating back.
+        if self._restore_results and any(self._restore_results.values()):
+            self._restoring = True
+            self._search_results = self._restore_results
+            self._last_query = self._restore_query or ""
+            search_input = self.query_one("#search-input", Input)
+            search_input.value = self._last_query
+            self._populate_results(self._search_results)
+            # Restore cursor position in songs table.
+            if self._restore_cursor_row is not None:
+                try:
+                    table = self.query_one("#songs-table", TrackTable)
+                    if self._restore_cursor_row < table.row_count:
+                        table.move_cursor(row=self._restore_cursor_row)
+                except Exception:
+                    pass
+            self._restore_results = None
+            self._restore_cursor_row = None
 
     def on_unmount(self) -> None:
         """Clean up timers and release data references."""
@@ -415,6 +462,23 @@ class SearchPage(Widget):
             "playlists": [],
         }
 
+    def get_nav_state(self) -> dict[str, Any]:
+        """Return state to preserve when navigating away."""
+        state: dict[str, Any] = {}
+        if self._last_query:
+            state["last_query"] = self._last_query
+        if self.search_mode != "music":
+            state["search_mode"] = self.search_mode
+        if any(self._search_results.values()):
+            state["search_results"] = self._search_results
+        try:
+            table = self.query_one("#songs-table", TrackTable)
+            if table.cursor_row is not None:
+                state["cursor_row"] = table.cursor_row
+        except Exception:
+            pass
+        return state
+
     # ------------------------------------------------------------------
     # Input handling
     # ------------------------------------------------------------------
@@ -422,6 +486,11 @@ class SearchPage(Widget):
     def on_input_changed(self, event: Input.Changed) -> None:
         """Debounce input changes to fetch suggestions."""
         if event.input.id != "search-input":
+            return
+
+        # Suppress suggestions triggered by restoring saved input value.
+        if self._restoring:
+            self._restoring = False
             return
 
         query = event.value.strip()
@@ -630,6 +699,20 @@ class SearchPage(Widget):
     # Mode toggle
     # ------------------------------------------------------------------
 
+    def on_click(self, event: Click) -> None:
+        """Toggle search mode when the mode label is clicked."""
+        widget = event.widget
+        # Match the #search-mode Static or any child of it.
+        try:
+            if (
+                widget.id == "search-mode"
+                or self.query_one("#search-mode", Static) in widget.ancestors
+            ):
+                event.stop()
+                self._toggle_search_mode()
+        except Exception:
+            pass
+
     def _toggle_search_mode(self) -> None:
         """Switch between music-only and all-results mode."""
         if self.search_mode == "music":
@@ -639,7 +722,7 @@ class SearchPage(Widget):
 
         # Update the mode indicator.
         mode_label = self.query_one("#search-mode", Static)
-        display = "Music" if self.search_mode == "music" else "All"
+        display = "[red]▶[/red] Music" if self.search_mode == "music" else "[red]▶[/red] All"
         mode_label.update(display)
 
         # Re-run the last search with the new mode if we have a query.
@@ -655,10 +738,15 @@ class SearchPage(Widget):
     # ------------------------------------------------------------------
 
     async def on_track_table_track_selected(self, event: TrackTable.TrackSelected) -> None:
-        """Play the selected song."""
+        """Play the selected song and populate the queue with search results."""
+        event.stop()
         track = event.track
         video_id = get_video_id(track)
         if video_id:
+            table = self.query_one("#songs-table", TrackTable)
+            self.app.queue.clear()
+            self.app.queue.add_multiple(table.tracks)
+            self.app.queue.jump_to_real(event.index)
             await self.app.play_track(track)
 
     async def on_search_result_panel_item_selected(

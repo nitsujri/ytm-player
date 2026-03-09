@@ -3,6 +3,7 @@
 from ytm_player.config.settings import (
     DiscordSettings,
     LastFMSettings,
+    LyricsSettings,
     PlaybackSettings,
     Settings,
 )
@@ -64,6 +65,36 @@ class TestPhase2Fields:
 
         loaded = Settings.load(path)
         assert loaded.discord.enabled is True
+
+
+class TestLyricsSettings:
+    def test_lyrics_defaults(self):
+        assert LyricsSettings().transliteration is False
+
+    def test_lyrics_in_settings(self):
+        s = Settings()
+        assert s.lyrics.transliteration is False
+
+    def test_lyrics_round_trip(self, tmp_config_dir):
+        path = tmp_config_dir / "config.toml"
+        s = Settings()
+        s.lyrics.transliteration = True
+        s.save(path)
+
+        loaded = Settings.load(path)
+        assert loaded.lyrics.transliteration is True
+
+    def test_lyrics_from_partial_toml(self, tmp_config_dir):
+        path = tmp_config_dir / "config.toml"
+        path.write_text("[lyrics]\ntransliteration = true\n")
+        loaded = Settings.load(path)
+        assert loaded.lyrics.transliteration is True
+
+    def test_missing_lyrics_section_uses_default(self, tmp_config_dir):
+        path = tmp_config_dir / "config.toml"
+        path.write_text("[playback]\ndefault_volume = 50\n")
+        loaded = Settings.load(path)
+        assert loaded.lyrics.transliteration is False
 
 
 class TestFilePermissions:

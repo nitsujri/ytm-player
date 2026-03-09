@@ -585,6 +585,32 @@ MIT — see [LICENSE](LICENSE).
 
 ## Changelog
 
+### v1.4.1 (2026-03-09)
+
+**New**
+- Lyrics transliteration — toggle ASCII transliteration of non-Latin lyrics with Ctrl+T, useful for Japanese, Korean, Arabic, Cyrillic, etc. Requires optional `anyascii` package (thanks @Kineforce, [#14](https://github.com/peternaame-boop/ytm-player/issues/14))
+- Add to Library button — albums and playlists that aren't in your library now show a clickable `[+ Add to Library]` button on their context page
+- Delete/remove playlist confirmation — deleting a playlist now asks for confirmation first; also supports removing non-owned playlists from your library
+- Search mode toggle is now clickable — click the `Music`/`All` label to toggle (was keyboard-only before)
+- Page state preservation — Search, Browse, Liked Songs, and Recently Played pages now remember their state (query, results, cursor position, active tab) when navigating away and back
+
+**Fixes**
+- Fixed RTL text word order — restored BiDi reordering for Arabic/Hebrew track titles, artists, and lyrics (UAX #9 algorithm)
+- Fixed right-click targeting wrong track — right-click now opens actions for the row under the cursor, not the previously highlighted row (thanks @glywil, PR [#16](https://github.com/peternaame-boop/ytm-player/pull/16))
+- Fixed artist search results showing "Unknown" instead of artist name
+- Fixed radio tracks crashing playback — radio API responses are now normalized before adding to queue
+- Fixed browse page items not opening — capitalized `resultType` values and missing routing for radio/mix entries
+- Fixed session restore crash when saved tracks become unavailable (deleted/region-locked videos)
+- Fixed actions popup crash when album field is a plain string instead of dict (thanks @glywil, PR [#16](https://github.com/peternaame-boop/ytm-player/pull/16))
+- Fixed double-click playing a track twice (1-second debounce)
+- Fixed back navigation ping-ponging between two pages
+- Fixed lyrics sidebar performance — batch-mount widgets instead of mounting individually
+- Fixed transliteration toggle highlight flash — forces immediate lyrics re-sync after toggle
+- Transliteration toggle state now persists across restarts via session.json
+- Sidebar refreshes after adding or removing playlists from library
+
+---
+
 ### v1.4.0 (2026-03-07)
 
 **New**

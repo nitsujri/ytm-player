@@ -174,20 +174,17 @@ class TrackTable(DataTable):
         album = track.get("album") or ""
         duration = extract_duration(track)
 
-        # Wrap text cells in LRI/PDI (U+2066/U+2069) so RTL content
-        # doesn't pull adjacent columns into the RTL BiDi context.
-        lri = "\u2066"
-        pdi = "\u2069"
+        from ytm_player.utils.bidi import reorder_rtl_line
 
         cells: list[str | int] = []
         if self._show_index:
             # Always show original playlist position, not current row number.
             orig = track.get("_original_index", index)
             cells.append(str(orig + 1))
-        cells.append(f"{lri}{title}{pdi}")
-        cells.append(f"{lri}{artist}{pdi}")
+        cells.append(reorder_rtl_line(title))
+        cells.append(reorder_rtl_line(artist))
         if self._show_album:
-            cells.append(f"{lri}{album}{pdi}")
+            cells.append(reorder_rtl_line(album))
         cells.append(format_duration(duration) if duration else "--:--")
 
         video_id = track.get("video_id", f"row_{index}")
@@ -378,8 +375,10 @@ class TrackTable(DataTable):
         """Handle right-click to emit TrackRightClicked."""
         if event.button == 3:
             event.stop()
+            event.prevent_default()
             self._right_clicked = True
-            row_idx = self.cursor_row
+            meta = event.style.meta
+            row_idx = meta.get("row") if meta else None
             if row_idx is not None and 0 <= row_idx < len(self._tracks):
                 self.post_message(self.TrackRightClicked(self._tracks[row_idx], row_idx))
 

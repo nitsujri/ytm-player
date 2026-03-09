@@ -6,6 +6,7 @@ import asyncio
 import json
 import logging
 import sys
+import time
 from typing import Any
 
 from textual.app import App, ComposeResult
@@ -174,6 +175,8 @@ class YTMPlayerApp(App):
 
         # Navigation stack for back navigation.
         self._nav_stack: list[tuple[str, dict]] = []
+        # Cached page state for forward navigation restoration.
+        self._page_state_cache: dict[str, dict] = {}
 
         # Last playlist played from Library (for auto-selecting on return).
         self._active_library_playlist_id: str | None = None
@@ -186,6 +189,9 @@ class YTMPlayerApp(App):
 
         # Guard against duplicate end-file events advancing twice.
         self._advancing: bool = False
+        # Debounce rapid play_track calls (e.g. double-click).
+        self._last_play_video_id: str = ""
+        self._last_play_time: float = 0.0
 
         # Reference to the position poll timer (for cleanup).
         self._poll_timer = None
@@ -493,6 +499,15 @@ class YTMPlayerApp(App):
         # Always start with lyrics sidebar closed regardless of previous session.
         self._lyrics_sidebar_open = False
 
+        # Restore transliteration toggle state (session overrides config).
+        if "transliteration_enabled" in state:
+            try:
+                self.query_one("#lyrics-sidebar", LyricsSidebar)._transliteration_enabled = state[
+                    "transliteration_enabled"
+                ]
+            except Exception:
+                pass
+
         # Auto-resume playback if the previous session exited uncleanly.
         resume = state.get("resume")
         if resume and isinstance(resume, dict):
@@ -557,6 +572,7 @@ class YTMPlayerApp(App):
             "resume": resume,
             "sidebar_per_page": self._sidebar_per_page,
             "lyrics_sidebar_open": self._lyrics_sidebar_open,
+            "transliteration_enabled": self._get_transliteration_state(),
         }
         try:
             from ytm_player.config.paths import SECURE_FILE_MODE, secure_chmod
@@ -566,6 +582,13 @@ class YTMPlayerApp(App):
             secure_chmod(SESSION_STATE_FILE, SECURE_FILE_MODE)
         except Exception:
             logger.warning("Could not save session state", exc_info=True)
+
+    def _get_transliteration_state(self) -> bool:
+        """Read transliteration toggle from the lyrics sidebar."""
+        try:
+            return self.query_one("#lyrics-sidebar", LyricsSidebar)._transliteration_enabled
+        except Exception:
+            return False
 
     # ── Key handling ─────────────────────────────────────────────────
 
@@ -785,7 +808,18 @@ class YTMPlayerApp(App):
             elif action_id == "add_to_queue":
                 self.notify("Added to queue", timeout=2)
             elif action_id == "delete":
-                self.run_worker(self._delete_sidebar_playlist(item))
+                from ytm_player.ui.popups.confirm_popup import ConfirmPopup
+
+                title = item.get("title", "this playlist")
+
+                def _on_confirm(confirmed: bool) -> None:
+                    if confirmed:
+                        self.run_worker(self._delete_sidebar_playlist(item))
+
+                self.push_screen(
+                    ConfirmPopup(f"Are you sure you want to delete '{title}'?"),
+                    _on_confirm,
+                )
             elif action_id == "copy_link":
                 try:
                     ps = self.query_one("#playlist-sidebar", PlaylistSidebar)
@@ -822,7 +856,7 @@ class YTMPlayerApp(App):
             self.notify("Failed to create playlist", severity="error", timeout=3)
 
     async def _delete_sidebar_playlist(self, item: dict) -> None:
-        """Delete a playlist and refresh the sidebar."""
+        """Delete or remove a playlist and refresh the sidebar."""
         if not self.ytmusic:
             return
         playlist_id = item.get("playlistId") or item.get("browseId", "")
@@ -830,17 +864,26 @@ class YTMPlayerApp(App):
         if not playlist_id:
             self.notify("Cannot determine playlist ID", severity="error", timeout=3)
             return
+        raw_id = playlist_id[2:] if playlist_id.startswith("VL") else playlist_id
         try:
-            success = await self.ytmusic.delete_playlist(playlist_id)
+            # Try delete first (owned playlists), fall back to remove from library.
+            success = False
+            try:
+                success = await self.ytmusic.delete_playlist(playlist_id)
+            except Exception:
+                pass
+            if not success:
+                success = await self.ytmusic.remove_album_from_library(raw_id)
             if success:
-                self.notify(f"Deleted '{title}'", timeout=2)
+                self.notify(f"Removed '{title}'", timeout=2)
+                await asyncio.sleep(1)
                 ps = self.query_one("#playlist-sidebar", PlaylistSidebar)
                 await ps.refresh_playlists()
             else:
-                self.notify("Failed to delete playlist", severity="error", timeout=3)
+                self.notify("Failed to remove playlist", severity="error", timeout=3)
         except Exception:
-            logger.exception("Failed to delete playlist %r", playlist_id)
-            self.notify("Failed to delete playlist", severity="error", timeout=3)
+            logger.exception("Failed to remove playlist %r", playlist_id)
+            self.notify("Failed to remove playlist", severity="error", timeout=3)
 
     # ── Action dispatch ──────────────────────────────────────────────
 
@@ -913,6 +956,11 @@ class YTMPlayerApp(App):
                 self._toggle_lyrics_sidebar()
             case Action.TOGGLE_SIDEBAR:
                 self._toggle_playlist_sidebar()
+            case Action.TOGGLE_TRANSLITERATION:
+                try:
+                    self.query_one("#lyrics-sidebar", LyricsSidebar).toggle_transliteration()
+                except Exception:
+                    pass
             case Action.BROWSE:
                 await self.navigate_to("browse")
             case Action.HELP:
@@ -985,7 +1033,8 @@ class YTMPlayerApp(App):
         Pass ``page_name="back"`` to pop from the navigation stack.
         """
         # Handle "back" navigation via stack.
-        if page_name == "back":
+        is_back = page_name == "back"
+        if is_back:
             if self._nav_stack:
                 prev_page, prev_kwargs = self._nav_stack.pop()
                 page_name = prev_page
@@ -1006,17 +1055,29 @@ class YTMPlayerApp(App):
             else:
                 return
 
-        # Push current page onto the nav stack before switching.
-        # Grab live state from the current page (e.g. active playlist).
-        if self._current_page and self._current_page != page_name:
-            nav_kwargs = dict(self._current_page_kwargs)
+        # Cache current page state before destroying it.
+        # This allows forward navigation (footer/sidebar clicks) to restore state.
+        if self._current_page:
             current_page = self._get_current_page()
             if current_page and hasattr(current_page, "get_nav_state"):
-                nav_kwargs.update(current_page.get_nav_state())
+                page_state = current_page.get_nav_state()
+                if page_state:
+                    self._page_state_cache[self._current_page] = page_state
+
+        # Push current page onto the nav stack before switching.
+        # Skip for back navigation — we already popped the target, don't push
+        # the current page or the stack ping-pongs between two pages.
+        if not is_back and self._current_page and self._current_page != page_name:
+            nav_kwargs = dict(self._current_page_kwargs)
+            nav_kwargs.update(self._page_state_cache.get(self._current_page, {}))
             self._nav_stack.append((self._current_page, nav_kwargs))
             # Cap stack size.
             if len(self._nav_stack) > _MAX_NAV_STACK:
                 self._nav_stack = self._nav_stack[-_MAX_NAV_STACK:]
+
+        # Restore cached state for forward navigation when no explicit kwargs given.
+        if not kwargs and page_name in self._page_state_cache:
+            kwargs = dict(self._page_state_cache[page_name])
 
         container = self.query_one("#main-content", Container)
 
@@ -1094,6 +1155,14 @@ class YTMPlayerApp(App):
             return
 
         video_id = get_video_id(track)
+
+        # Debounce rapid duplicate calls (e.g. double-click).
+        now = time.monotonic()
+        if video_id and video_id == self._last_play_video_id and (now - self._last_play_time) < 1.0:
+            return
+        if video_id:
+            self._last_play_video_id = video_id
+            self._last_play_time = now
         if not video_id:
             self._consecutive_failures += 1
             title = track.get("title", "Unknown")

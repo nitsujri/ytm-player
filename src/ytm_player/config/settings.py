@@ -83,6 +83,11 @@ class DiscordSettings:
 
 
 @dataclass
+class LyricsSettings:
+    transliteration: bool = False
+
+
+@dataclass
 class LastFMSettings:
     enabled: bool = False
     api_key: str = ""
@@ -101,6 +106,7 @@ SECTION_MAP: dict[str, type] = {
     "ui": UISettings,
     "notifications": NotificationSettings,
     "mpris": MPRISSettings,
+    "lyrics": LyricsSettings,
     "discord": DiscordSettings,
     "lastfm": LastFMSettings,
 }
@@ -116,6 +122,7 @@ class Settings:
     ui: UISettings = field(default_factory=UISettings)
     notifications: NotificationSettings = field(default_factory=NotificationSettings)
     mpris: MPRISSettings = field(default_factory=MPRISSettings)
+    lyrics: LyricsSettings = field(default_factory=LyricsSettings)
     discord: DiscordSettings = field(default_factory=DiscordSettings)
     lastfm: LastFMSettings = field(default_factory=LastFMSettings)
 

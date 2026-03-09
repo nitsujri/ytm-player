@@ -75,15 +75,24 @@ class _TrackInfo(Widget):
             # LRI (U+2066) ... PDI (U+2069) isolates the track info so
             # RTL titles don't pull adjacent widgets (volume, etc.) into
             # the RTL BiDi context.
-            result.append("\u2066")
-            result.append(truncate(self.title, title_w), style=f"bold {theme.foreground}")
+            from ytm_player.utils.bidi import reorder_rtl_line
+
+            result.append(
+                truncate(reorder_rtl_line(self.title), title_w),
+                style=f"bold {theme.foreground}",
+            )
             if self.artist:
                 result.append(" \u2014 ", style=theme.muted_text)
-                result.append(truncate(self.artist, artist_w), style=theme.secondary)
+                result.append(
+                    truncate(reorder_rtl_line(self.artist), artist_w),
+                    style=theme.secondary,
+                )
             if self.album:
                 result.append(" \u2014 ", style=theme.muted_text)
-                result.append(truncate(self.album, max(0, album_w)), style=theme.muted_text)
-            result.append("\u2069")
+                result.append(
+                    truncate(reorder_rtl_line(self.album), max(0, album_w)),
+                    style=theme.muted_text,
+                )
         else:
             result.append("No track playing", style=theme.muted_text)
 

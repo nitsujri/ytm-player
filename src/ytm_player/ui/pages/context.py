@@ -7,9 +7,10 @@ from typing import Any
 
 from textual.app import ComposeResult
 from textual.containers import Horizontal, Vertical
+from textual.events import Click
 from textual.reactive import reactive
 from textual.widget import Widget
-from textual.widgets import DataTable, Label
+from textual.widgets import DataTable, Label, Static
 from textual.worker import Worker, WorkerState
 
 from ytm_player.config.keymap import Action
@@ -78,6 +79,21 @@ class ContextPage(Widget):
     }
     .context-subtitle {
         color: $text-muted;
+    }
+    #add-to-library-btn {
+        width: auto;
+        min-width: 18;
+        height: 1;
+        margin: 0 0 0 1;
+        padding: 0 1;
+        color: $primary;
+    }
+    #add-to-library-btn:hover {
+        background: $primary 30%;
+    }
+    .context-header-row {
+        height: auto;
+        width: 1fr;
     }
     .context-body {
         height: 1fr;
@@ -230,7 +246,10 @@ class ContextPage(Widget):
 
         header = Vertical(classes="context-header")
         container.mount(header)
-        header.mount(Label("[b]Album[/b]", markup=True))
+        title_row = Horizontal(classes="context-header-row")
+        header.mount(title_row)
+        title_row.mount(Label("[b]Album[/b]", markup=True))
+        title_row.mount(Static("[+ Add to Library]", id="add-to-library-btn", markup=True))
         header.mount(Label(title, classes="context-title"))
         header.mount(Label(" \u00b7 ".join(subtitle_parts), classes="context-subtitle"))
         unavailable = len(raw_tracks) - track_count
@@ -256,7 +275,10 @@ class ContextPage(Widget):
 
         header = Vertical(classes="context-header")
         container.mount(header)
-        header.mount(Label("[b]Playlist[/b]", markup=True))
+        title_row = Horizontal(classes="context-header-row")
+        header.mount(title_row)
+        title_row.mount(Label("[b]Playlist[/b]", markup=True))
+        title_row.mount(Static("[+ Add to Library]", id="add-to-library-btn", markup=True))
         header.mount(Label(title, classes="context-title"))
         header.mount(Label(subtitle, classes="context-subtitle"))
         unavailable = len(raw_tracks) - track_count
@@ -333,6 +355,48 @@ class ContextPage(Widget):
             pass
 
     # ── Events ────────────────────────────────────────────────────────
+
+    def on_click(self, event: Click) -> None:
+        """Handle clicks on the add-to-library button."""
+        widget = event.widget
+        if widget.id == "add-to-library-btn":
+            event.stop()
+            self.run_worker(self._add_to_library(), name="add_to_lib", exclusive=True)
+
+    async def _add_to_library(self) -> None:
+        """Add the current album or playlist to the user's library."""
+        ytmusic = self.app.ytmusic  # type: ignore[attr-defined]
+        playlist_id = (
+            self._data.get("playlistId")
+            or self._data.get("audioPlaylistId")
+            or self._data.get("id")
+            or self.context_id
+            or ""
+        )
+        # Strip "VL" prefix — rate_playlist needs the raw playlist ID.
+        if playlist_id and playlist_id.startswith("VL"):
+            playlist_id = playlist_id[2:]
+        if not playlist_id:
+            self.app.notify("Cannot add — no playlist ID found", severity="error", timeout=3)
+            return
+
+        ok = await ytmusic.add_to_library(playlist_id)
+        if ok:
+            self.app.notify("Added to library", timeout=2)
+            try:
+                btn = self.query_one("#add-to-library-btn", Static)
+                btn.update("[✓ Added to Library]")
+            except Exception:
+                pass
+            try:
+                from ytm_player.ui.sidebars.playlist_sidebar import PlaylistSidebar
+
+                ps = self.app.query_one("#playlist-sidebar", PlaylistSidebar)
+                await ps.refresh_playlists()
+            except Exception:
+                pass
+        else:
+            self.app.notify("Failed to add to library", severity="error", timeout=3)
 
     async def on_track_table_track_selected(self, event: TrackTable.TrackSelected) -> None:
         """Play the selected track and enqueue remaining tracks."""

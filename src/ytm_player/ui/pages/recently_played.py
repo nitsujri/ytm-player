@@ -61,10 +61,11 @@ class RecentlyPlayedPage(Widget):
 
     track_count: reactive[int] = reactive(0)
 
-    def __init__(self, **kwargs: Any) -> None:
+    def __init__(self, *, cursor_row: int | None = None, **kwargs: Any) -> None:
         super().__init__(**kwargs)
         self._row_keys: list[RowKey] = []
         self._tracks: list[dict] = []
+        self._restore_cursor_row = cursor_row
 
     def compose(self) -> ComposeResult:
         yield Vertical(
@@ -135,6 +136,23 @@ class RecentlyPlayedPage(Widget):
         self.track_count = len(self._tracks)
         footer = self.query_one("#recent-footer", Static)
         footer.update(f"{len(self._tracks)} recently played tracks")
+
+        # Restore cursor position from navigation state.
+        row = self._restore_cursor_row
+        self._restore_cursor_row = None
+        if row is not None and 0 <= row < table.row_count:
+            table.move_cursor(row=row)
+
+    def get_nav_state(self) -> dict[str, Any]:
+        """Return state to preserve when navigating away."""
+        state: dict[str, Any] = {}
+        try:
+            table = self.query_one("#recent-table", DataTable)
+            if table.cursor_row is not None and table.cursor_row > 0:
+                state["cursor_row"] = table.cursor_row
+        except Exception:
+            pass
+        return state
 
     async def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
         event.stop()

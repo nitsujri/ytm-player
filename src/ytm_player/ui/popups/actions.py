@@ -203,6 +203,7 @@ class ActionsPopup(ModalScreen[str | None]):
 
     def on_click(self, event: Any) -> None:
         """Dismiss when clicking outside the popup box."""
+        event.stop()
         if event.widget is self:
             self.dismiss(None)
 

@@ -18,6 +18,7 @@ from textual.worker import Worker, WorkerState
 from ytm_player.config.keymap import Action
 from ytm_player.services.player import PlayerEvent
 from ytm_player.utils.bidi import has_rtl, wrap_rtl_line
+from ytm_player.utils.transliteration import has_non_ascii, transliterate_line
 
 logger = logging.getLogger(__name__)
 
@@ -119,6 +120,11 @@ class LyricsSidebar(Widget):
     LyricsSidebar .lyrics-rtl {
         text-align: right;
     }
+
+    LyricsSidebar .lyrics-transliterated {
+        color: $text-muted;
+        padding: 0 2;
+    }
     """
 
     current_line_index: reactive[int] = reactive(-1)
@@ -137,6 +143,7 @@ class LyricsSidebar(Widget):
         self._track_change_callback: Any = None
         self._needs_rebuild: bool = False
         self._pending_track: dict | None = None
+        self._transliteration_enabled: bool = False
 
     def compose(self) -> ComposeResult:
         yield Label("", id="ls-title", classes="ls-header")
@@ -148,6 +155,9 @@ class LyricsSidebar(Widget):
         # Player may not be ready yet (app services init after compose).
         # Events are registered lazily in _ensure_player_events().
         self._events_registered = False
+        settings = getattr(self.app, "settings", None)
+        if settings:
+            self._transliteration_enabled = settings.lyrics.transliteration
 
     def on_unmount(self) -> None:
         self._unregister_player_events()
@@ -348,6 +358,7 @@ class LyricsSidebar(Widget):
         self._lyric_widgets = []
         self.current_line_index = -1
         wrap_width = self._get_rtl_wrap_width()
+        children: list[Static] = []
         for ts, text in self._synced_lines:
             display_text = wrap_rtl_line(text, wrap_width) if text else ""
             widget = _LyricLine(display_text, timestamp=ts)
@@ -355,7 +366,12 @@ class LyricsSidebar(Widget):
             if text and has_rtl(text):
                 widget.add_class("lyrics-rtl")
             self._lyric_widgets.append(widget)
-            scroll.mount(widget)
+            children.append(widget)
+            if self._transliteration_enabled and text and has_non_ascii(text):
+                tl = Static(transliterate_line(text))
+                tl.add_class("lyrics-transliterated")
+                children.append(tl)
+        scroll.mount(*children)
 
     def _build_unsynced_view(self) -> None:
         self._show_scroll()
@@ -363,13 +379,19 @@ class LyricsSidebar(Widget):
         scroll.remove_children()
         self._lyric_widgets = []
         wrap_width = self._get_rtl_wrap_width()
+        children: list[Static] = []
         for line in self._unsynced_lines:
             widget = _LyricLine(wrap_rtl_line(line, wrap_width))
             widget.add_class("lyrics-upcoming")
             if line and has_rtl(line):
                 widget.add_class("lyrics-rtl")
             self._lyric_widgets.append(widget)
-            scroll.mount(widget)
+            children.append(widget)
+            if self._transliteration_enabled and line and has_non_ascii(line):
+                tl = Static(transliterate_line(line))
+                tl.add_class("lyrics-transliterated")
+                children.append(tl)
+        scroll.mount(*children)
 
     def _show_status(self, message: str) -> None:
         try:
@@ -441,6 +463,22 @@ class LyricsSidebar(Widget):
             except Exception:
                 logger.debug("Failed to auto-scroll lyrics sidebar", exc_info=True)
 
+    # ── Transliteration toggle ────────────────────────────────────────
+
+    def toggle_transliteration(self) -> None:
+        """Toggle transliteration display and rebuild the lyrics view."""
+        self._transliteration_enabled = not self._transliteration_enabled
+        if self._is_synced and self._synced_lines:
+            self._build_synced_view()
+            # Force immediate re-highlight so there's no flash of unhighlighted text.
+            player = getattr(self.app, "player", None)
+            if player and player.position is not None:
+                self._on_position_change(player.position)
+        elif self._unsynced_lines:
+            self._build_unsynced_view()
+        state = "on" if self._transliteration_enabled else "off"
+        self.app.notify(f"Transliteration {state}")
+
     # ── Action handling ──────────────────────────────────────────────
 
     async def handle_action(self, action: Action, count: int = 1) -> None:
@@ -457,6 +495,8 @@ class LyricsSidebar(Widget):
                 self._scroll_to_top()
             case Action.GO_BOTTOM:
                 self._scroll_to_bottom()
+            case Action.TOGGLE_TRANSLITERATION:
+                self.toggle_transliteration()
 
     def _manual_scroll(self, lines: int) -> None:
         self._auto_scroll = False
