@@ -8,6 +8,7 @@ from textual.reactive import reactive
 from textual.timer import Timer
 from textual.widget import Widget
 
+from ytm_player.ui.theme import get_theme
 from ytm_player.utils.formatting import format_duration
 
 # Seconds to jump per scroll tick.
@@ -48,20 +49,21 @@ class PlaybackProgress(Widget):
         self,
         *,
         bar_style: str = "block",
-        filled_color: str = "#ff0000",
-        empty_color: str = "#404040",
-        time_color: str = "#aaaaaa",
-        marker_color: str = "#ffffff",
+        filled_color: str | None = None,
+        empty_color: str | None = None,
+        time_color: str | None = None,
+        marker_color: str | None = None,
         name: str | None = None,
         id: str | None = None,
         classes: str | None = None,
     ) -> None:
         super().__init__(name=name, id=id, classes=classes)
+        theme = get_theme()
         self._bar_style = bar_style
-        self._filled_color = filled_color
-        self._empty_color = empty_color
-        self._time_color = time_color
-        self._marker_color = marker_color
+        self._filled_color = filled_color or theme.progress_filled
+        self._empty_color = empty_color or theme.progress_empty
+        self._time_color = time_color or theme.secondary
+        self._marker_color = marker_color or theme.foreground
 
         # Scroll-seek preview state.
         self._preview_position: float | None = None

@@ -19,6 +19,8 @@ from textual.events import Resize
 from textual.reactive import reactive
 from textual.widget import Widget
 
+from ytm_player.ui.theme import get_theme
+
 logger = logging.getLogger(__name__)
 
 try:
@@ -64,15 +66,11 @@ class AlbumArt(Widget):
     def __init__(
         self,
         *,
-        accent_color: str = "#ff0000",
-        bg_color: str = "#1a1a1a",
         name: str | None = None,
         id: str | None = None,
         classes: str | None = None,
     ) -> None:
         super().__init__(name=name, id=id, classes=classes)
-        self._accent_color = accent_color
-        self._bg_color = bg_color
         self._rendered: Text | None = None
 
     # ── Reactive watchers ─────────────────────────────────────────────
@@ -177,7 +175,7 @@ class AlbumArt(Widget):
     def _render_empty(self, w: int, h: int) -> Text:
         """Render an empty/muted placeholder."""
         result = Text()
-        muted = "#404040"
+        muted = get_theme().border
         for row in range(h):
             if row > 0:
                 result.append("\n")
@@ -193,20 +191,22 @@ class AlbumArt(Widget):
     def _render_placeholder(self, w: int, h: int) -> Text:
         """Render a colored placeholder box with a music note."""
         result = Text()
-        accent = self._accent_color
+        theme = get_theme()
+        accent = theme.primary
+        bg = theme.playback_bar_bg
 
         for row in range(h):
             if row > 0:
                 result.append("\n")
 
             if row == 0:
-                result.append(_BLOCK_BOTTOM * w, style=f"{accent} on {self._bg_color}")
+                result.append(_BLOCK_BOTTOM * w, style=f"{accent} on {bg}")
             elif row == h - 1:
-                result.append(_BLOCK_TOP * w, style=f"{accent} on {self._bg_color}")
+                result.append(_BLOCK_TOP * w, style=f"{accent} on {bg}")
             elif row == h // 2:
                 pad = (w - 1) // 2
                 result.append(_BLOCK_FULL * pad, style=accent)
-                result.append(_NOTE, style=f"bold white on {accent}")
+                result.append(_NOTE, style=f"bold {theme.foreground} on {accent}")
                 result.append(_BLOCK_FULL * (w - pad - 1), style=accent)
             else:
                 result.append(_BLOCK_FULL * w, style=accent)

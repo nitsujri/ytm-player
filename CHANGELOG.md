@@ -6,6 +6,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ---
 
+### v1.5.2 (2026-03-17)
+
+**Fixes**
+- Fixed RTL lyrics displaying in wrong word order — disabled manual RTL reordering which was reversing text on both BiDi and non-BiDi terminals. Added `bidi_mode` config option (`auto`/`reorder`/`passthrough`) for users who need explicit control
+- Fixed lyrics sidebar ignoring custom `lyrics_played`/`lyrics_current`/`lyrics_upcoming` theme colors — CSS was wired to wrong variables (`$success`, `$text-muted`, `$text` instead of `$lyrics-*`)
+- Fixed album art placeholder and context page cursor using hard-coded colors instead of theme — all UI colors now flow through `ThemeColors` for full theme customization support
+
+---
+
 ### v1.5.1 (2026-03-12)
 
 **New**

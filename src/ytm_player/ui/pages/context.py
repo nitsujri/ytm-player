@@ -29,7 +29,7 @@ class _ArtistAlbumList(DataTable):
         width: 1fr;
     }
     _ArtistAlbumList > .datatable--cursor {
-        background: #2a2a2a;
+        background: $selected-item;
     }
     """
 

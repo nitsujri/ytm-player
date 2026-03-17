@@ -27,7 +27,7 @@ class ThemeColors:
     progress_filled: str = "#ff0000"
     progress_empty: str = "#555555"
     lyrics_played: str = "#999999"
-    lyrics_current: str = "#ffffff"
+    lyrics_current: str = "#2ecc71"
     lyrics_upcoming: str = "#aaaaaa"
     border: str = "#333333"
     muted_text: str = "#999999"

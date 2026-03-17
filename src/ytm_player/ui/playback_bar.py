@@ -271,14 +271,7 @@ class PlaybackBar(Widget):
                     yield _RepeatButton(id="pb-repeat")
                     yield _ShuffleButton(id="pb-shuffle")
                 with Horizontal(id="pb-bottom-row"):
-                    _t = get_theme()
-                    yield PlaybackProgress(
-                        bar_style="block",
-                        filled_color=_t.progress_filled,
-                        empty_color=_t.progress_empty,
-                        time_color=_t.secondary,
-                        id="pb-progress",
-                    )
+                    yield PlaybackProgress(bar_style="block", id="pb-progress")
 
     def on_click(self, event: Click) -> None:
         """Right-click on the playback bar opens track actions."""

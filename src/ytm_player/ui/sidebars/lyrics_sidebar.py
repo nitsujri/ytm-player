@@ -105,16 +105,16 @@ class LyricsSidebar(Widget):
     }
 
     LyricsSidebar .lyrics-played {
-        color: $text-muted;
+        color: $lyrics-played;
     }
 
     LyricsSidebar .lyrics-current {
-        color: $success;
+        color: $lyrics-current;
         text-style: bold;
     }
 
     LyricsSidebar .lyrics-upcoming {
-        color: $text;
+        color: $lyrics-upcoming;
     }
 
     LyricsSidebar .lyrics-rtl {
