@@ -57,6 +57,38 @@ class IPCMixin:
                     self.queue.clear()
                     return {"ok": True}
 
+                case "like":
+                    if (
+                        not self.player
+                        or not self.player.current_track
+                        or not self.player.current_track.get("video_id")
+                    ):
+                        return {"ok": False, "error": "no track is playing"}
+                    await self.ytmusic.rate_song(self.player.current_track["video_id"], "LIKE")
+                    return {"ok": True}
+
+                case "dislike":
+                    if (
+                        not self.player
+                        or not self.player.current_track
+                        or not self.player.current_track.get("video_id")
+                    ):
+                        return {"ok": False, "error": "no track is playing"}
+                    await self.ytmusic.rate_song(self.player.current_track["video_id"], "DISLIKE")
+                    return {"ok": True}
+
+                case "unlike":
+                    if (
+                        not self.player
+                        or not self.player.current_track
+                        or not self.player.current_track.get("video_id")
+                    ):
+                        return {"ok": False, "error": "no track is playing"}
+                    await self.ytmusic.rate_song(
+                        self.player.current_track["video_id"], "INDIFFERENT"
+                    )
+                    return {"ok": True}
+
                 case _:
                     return {"ok": False, "error": f"unknown command: {command}"}
         except Exception as exc:

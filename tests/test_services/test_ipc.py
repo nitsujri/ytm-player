@@ -39,6 +39,9 @@ class TestIPCCommandWhitelist:
             "queue",
             "queue_add",
             "queue_clear",
+            "like",
+            "dislike",
+            "unlike",
         }
         assert _VALID_COMMANDS == expected
 

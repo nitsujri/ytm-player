@@ -37,6 +37,9 @@ _VALID_COMMANDS = frozenset(
         "queue",
         "queue_add",
         "queue_clear",
+        "like",
+        "dislike",
+        "unlike",
     }
 )
 

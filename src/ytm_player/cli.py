@@ -263,6 +263,39 @@ def status(ctx: click.Context) -> None:
         _error(resp.get("error", "unknown error"))
 
 
+@main.command()
+def like() -> None:
+    """Like the current track."""
+    _require_tui()
+    resp = _ipc("like")
+    if resp.get("ok"):
+        click.echo("Liked current track.")
+    else:
+        _error(resp.get("error", "unknown error"))
+
+
+@main.command()
+def dislike() -> None:
+    """Dislike the current track."""
+    _require_tui()
+    resp = _ipc("dislike")
+    if resp.get("ok"):
+        click.echo("Disliked current track.")
+    else:
+        _error(resp.get("error", "unknown error"))
+
+
+@main.command()
+def unlike() -> None:
+    """Remove like/dislike from the current track."""
+    _require_tui()
+    resp = _ipc("unlike")
+    if resp.get("ok"):
+        click.echo("Removed like/dislike from current track.")
+    else:
+        _error(resp.get("error", "unknown error"))
+
+
 # ---------------------------------------------------------------------------
 # Search (standalone -- does not require TUI)
 # ---------------------------------------------------------------------------
