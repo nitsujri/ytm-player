@@ -60,9 +60,9 @@ class _TrackInfo(Widget):
 
         # State icon
         if self.is_playing and not self.is_paused:
-            result.append(f" {_ICON_PLAYING} ", style=f"bold {theme.primary}")
+            result.append(f" {_ICON_PAUSED} ", style=f"bold {theme.primary}")
         elif self.is_paused:
-            result.append(f" {_ICON_PAUSED} ", style=f"bold {theme.warning}")
+            result.append(f" {_ICON_PLAYING} ", style=f"bold {theme.warning}")
         else:
             result.append(f" {_ICON_STOPPED} ", style=theme.muted_text)
 
