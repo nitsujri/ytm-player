@@ -89,10 +89,12 @@ class AuthManager:
         config_dir: Path = CONFIG_DIR,
         auth_file: Path = AUTH_FILE,
         cookies_file: str | None = None,
+        brand_account: str | None = None,
     ) -> None:
         self._config_dir = config_dir
         self._auth_file = auth_file
         self._cookies_file = normalize_cookiefile(cookies_file)
+        self._brand_account = brand_account or None
 
     @property
     def auth_file(self) -> Path:
@@ -111,7 +113,7 @@ class AuthManager:
 
     def create_ytmusic_client(self) -> YTMusic:
         """Create a YTMusic client from the stored auth file."""
-        return YTMusic(str(self._auth_file))
+        return YTMusic(str(self._auth_file), user=self._brand_account)
 
     def validate(self) -> bool:
         """Verify that the auth credentials actually work.
@@ -189,7 +191,19 @@ class AuthManager:
             print()
             return self._setup_manual()
 
-        # Auto-detect browser.
+        # Let the user choose a browser or auto-detect.
+        selected = self._prompt_browser_selection()
+
+        if selected:
+            print(f"  Trying browser: {selected}")
+            print()
+            if self._extract_and_save(selected, interactive=True):
+                return True
+            print(f"  Could not extract from {selected}. Falling back to manual setup.")
+            print()
+            return self._setup_manual()
+
+        # Auto-detect (user chose option 0 or prompt was skipped).
         detected = self._detect_browser()
         if detected:
             print(f"  Found YouTube cookies in {detected}.")
@@ -203,6 +217,30 @@ class AuthManager:
         return self._setup_manual()
 
     # ── Browser cookie extraction ────────────────────────────────────
+
+    @staticmethod
+    def _prompt_browser_selection() -> str | None:
+        """Prompt the user to pick a browser or auto-detect. Returns None for auto-detect."""
+        print("  Select a browser to extract cookies from:")
+        print()
+        print("  [0] Auto-detect (try all browsers)")
+        for i, browser in enumerate(_BROWSERS, 1):
+            print(f"  [{i}] {browser}")
+        print()
+        while True:
+            try:
+                raw = input(f"  Enter number [0-{len(_BROWSERS)}]: ").strip()
+                choice = int(raw)
+                if choice == 0:
+                    return None
+                if 1 <= choice <= len(_BROWSERS):
+                    return _BROWSERS[choice - 1]
+            except ValueError:
+                pass
+            except (EOFError, KeyboardInterrupt):
+                print()
+                return None
+            print(f"  Please enter a number between 0 and {len(_BROWSERS)}.")
 
     @staticmethod
     def _detect_browser() -> str | None:
@@ -545,6 +583,8 @@ def _normalize_raw_headers(raw: str) -> str:
     return "\n".join(result)
 
 
-def get_auth_manager(cookies_file: str | None = None) -> AuthManager:
+def get_auth_manager(
+    cookies_file: str | None = None, brand_account: str | None = None
+) -> AuthManager:
     """Return a module-level AuthManager instance."""
-    return AuthManager(cookies_file=cookies_file)
+    return AuthManager(cookies_file=cookies_file, brand_account=brand_account)

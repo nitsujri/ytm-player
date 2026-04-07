@@ -12,12 +12,19 @@ import os
 # ctypes in player.py; this env var provides a hint for subprocesses.
 os.environ["LC_NUMERIC"] = "C"
 
+# On macOS with Homebrew, ensure libmpv is discoverable by ctypes.
+import sys  # noqa: E402 — needed before other imports for DYLD_LIBRARY_PATH
+
+if sys.platform == "darwin":
+    _brew_lib = "/opt/homebrew/lib"
+    if os.path.isdir(_brew_lib):
+        os.environ.setdefault("DYLD_LIBRARY_PATH", _brew_lib)
+
 import json
 import logging
 import shutil
 import sqlite3
 import subprocess
-import sys
 from pathlib import Path
 from typing import Any, NoReturn
 
@@ -70,7 +77,11 @@ def _ipc(command: str, args: dict[str, Any] | None = None) -> dict[str, Any]:
 
 def _require_auth() -> Path:
     """Return the auth file path, or exit if not authenticated."""
-    auth = AuthManager(cookies_file=get_settings().yt_dlp.cookies_file)
+    settings = get_settings()
+    auth = AuthManager(
+        cookies_file=settings.yt_dlp.cookies_file,
+        brand_account=settings.general.brand_account or None,
+    )
     if not auth.is_authenticated():
         _error("Not authenticated. Run `ytm setup` to configure YouTube Music credentials.")
     return auth.auth_file
@@ -134,9 +145,19 @@ def main(ctx: click.Context, compact_json: bool) -> None:
     default=None,
     help="Extract cookies from a specific browser (chrome, firefox, brave, edge, etc.).",
 )
-def setup(manual: bool, browser: str | None) -> None:
+@click.option(
+    "--brand-account",
+    type=str,
+    default=None,
+    help="Brand Account ID for YouTube Music (numeric string from myaccount.google.com/brandaccounts).",
+)
+def setup(manual: bool, browser: str | None, brand_account: str | None) -> None:
     """Interactive authentication wizard for YouTube Music."""
-    auth = AuthManager(cookies_file=get_settings().yt_dlp.cookies_file)
+    settings = get_settings()
+    auth = AuthManager(
+        cookies_file=settings.yt_dlp.cookies_file,
+        brand_account=brand_account or settings.general.brand_account or None,
+    )
 
     if auth.is_authenticated():
         click.echo("Existing authentication found.")
@@ -147,6 +168,12 @@ def setup(manual: bool, browser: str | None) -> None:
     success = auth.setup_interactive(manual=manual, browser=browser)
     if not success:
         _error("Authentication setup failed.")
+
+    # Persist brand account to config if provided via CLI flag.
+    if brand_account:
+        settings.general.brand_account = brand_account
+        settings.save()
+        click.echo(f"Brand Account ID saved to config: {brand_account}")
 
     click.echo("\nValidating credentials...")
     try:
@@ -287,7 +314,11 @@ def search(query: tuple[str, ...], filter_type: str | None, limit: int, compact_
     _require_auth()
     search_query = " ".join(query)
 
-    auth = AuthManager(cookies_file=get_settings().yt_dlp.cookies_file)
+    settings = get_settings()
+    auth = AuthManager(
+        cookies_file=settings.yt_dlp.cookies_file,
+        brand_account=settings.general.brand_account or None,
+    )
     try:
         ytm = auth.create_ytmusic_client()
         results = ytm.search(search_query, filter=filter_type, limit=limit)

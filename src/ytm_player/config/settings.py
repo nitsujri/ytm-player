@@ -17,6 +17,7 @@ logger = logging.getLogger(__name__)
 class GeneralSettings:
     startup_page: str = "library"
     playback_bar_position: str = "bottom"
+    brand_account: str = ""
 
 
 @dataclass

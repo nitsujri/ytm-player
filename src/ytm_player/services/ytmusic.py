@@ -28,10 +28,14 @@ class YTMusicService:
     """
 
     def __init__(
-        self, auth_path: Path = AUTH_FILE, auth_manager: AuthManager | None = None
+        self,
+        auth_path: Path = AUTH_FILE,
+        auth_manager: AuthManager | None = None,
+        brand_account: str | None = None,
     ) -> None:
         self._auth_path = auth_path
         self._auth_manager = auth_manager
+        self._brand_account = brand_account or None
         self._ytm: YTMusic | None = None
         self._consecutive_api_failures: int = 0
 
@@ -42,7 +46,7 @@ class YTMusicService:
             if self._auth_manager is not None:
                 self._ytm = self._auth_manager.create_ytmusic_client()
             else:
-                self._ytm = YTMusic(str(self._auth_path))
+                self._ytm = YTMusic(str(self._auth_path), user=self._brand_account)
         return self._ytm
 
     async def _call(self, func: Any, *args: Any, **kwargs: Any) -> Any:

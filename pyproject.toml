@@ -1,13 +1,9 @@
-[build-system]
-requires = ["hatchling"]
-build-backend = "hatchling.build"
-
 [project]
 name = "ytm-player"
-dynamic = ["version"]
+version = "1.5.2"
 description = "A full-featured YouTube Music TUI client for the terminal"
 readme = "README.md"
-requires-python = ">=3.12"
+requires-python = ">=3.12,<4.0"
 license = "MIT"
 authors = [{ name = "Peter", email = "peternaame@gmail.com" }]
 keywords = ["youtube-music", "tui", "music-player", "terminal", "textual", "mpv"]
@@ -45,7 +41,7 @@ spotify = [
 mpris = [
     "dbus-next>=0.2.3",
 ]
-images = []  # Pillow is now a default dependency; kept for backwards compat.
+images = []
 discord = [
     "pypresence>=4.3.0",
 ]
@@ -53,13 +49,6 @@ lastfm = [
     "pylast>=5.0.0",
 ]
 transliteration = [
-    "anyascii>=0.3.0",
-]
-dev = [
-    "pytest>=8.0",
-    "pytest-asyncio>=0.24",
-    "pytest-cov",
-    "ruff",
     "anyascii>=0.3.0",
 ]
 
@@ -74,11 +63,19 @@ Changelog = "https://github.com/peternaame-boop/ytm-player/blob/master/CHANGELOG
 [project.scripts]
 ytm = "ytm_player.cli:main"
 
-[tool.hatch.build.targets.wheel]
-packages = ["src/ytm_player"]
+[tool.poetry]
+packages = [{ include = "ytm_player", from = "src" }]
 
-[tool.hatch.version]
-path = "src/ytm_player/__init__.py"
+[tool.poetry.group.dev.dependencies]
+pytest = ">=8.0"
+pytest-asyncio = ">=0.24"
+pytest-cov = "*"
+ruff = "*"
+anyascii = ">=0.3.0"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
 
 [tool.ruff]
 target-version = "py312"
