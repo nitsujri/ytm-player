@@ -29,6 +29,7 @@ _VALID_COMMANDS = frozenset(
     {
         "play",
         "pause",
+        "toggle",
         "next",
         "prev",
         "seek",

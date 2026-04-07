@@ -222,6 +222,17 @@ def pause() -> None:
         _error(resp.get("error", "unknown error"))
 
 
+@main.command()
+def toggle() -> None:
+    """Toggle play/pause."""
+    _require_tui()
+    resp = _ipc("toggle")
+    if resp.get("ok"):
+        click.echo("Toggled.")
+    else:
+        _error(resp.get("error", "unknown error"))
+
+
 @main.command("next")
 def next_track() -> None:
     """Skip to the next track."""

@@ -26,6 +26,12 @@ class IPCMixin:
                     await self.player.pause()
                     return {"ok": True}
 
+                case "toggle":
+                    if not self.player:
+                        return {"ok": False, "error": "player not ready"}
+                    await self._toggle_play_pause()
+                    return {"ok": True}
+
                 case "next":
                     if not self.player:
                         return {"ok": False, "error": "player not ready"}
