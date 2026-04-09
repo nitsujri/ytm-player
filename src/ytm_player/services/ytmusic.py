@@ -237,6 +237,8 @@ class YTMusicService:
             params = self._ORDER_PARAMS.get(order or "")
             if params:
                 # Temporarily inject sort params into the browse request.
+                # Sort params may not work for non-owned playlists, so fall
+                # back to an unsorted fetch on failure.
                 client = self.client
                 original_send = client._send_request
 
@@ -248,11 +250,17 @@ class YTMusicService:
                 try:
                     client._send_request = _patched_send
                     return await self._call(client.get_playlist, playlist_id, limit=limit)
+                except Exception:
+                    logger.debug(
+                        "get_playlist with order=%r failed for %r, retrying without order",
+                        order,
+                        playlist_id,
+                    )
                 finally:
                     client._send_request = original_send
             return await self._call(self.client.get_playlist, playlist_id, limit=limit)
         except Exception:
-            logger.debug("get_playlist failed for %r", playlist_id)
+            logger.warning("get_playlist failed for %r", playlist_id, exc_info=True)
             return {}
 
     async def get_song(self, video_id: str) -> dict[str, Any]:

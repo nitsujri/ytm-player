@@ -144,6 +144,13 @@ class LibraryPage(Widget):
             if self._active_playlist_id != playlist_id:
                 return
 
+            if not data:
+                loading.display = False
+                self.query_one("#empty-state").display = True
+                empty = self.query_one("#empty-state", Static)
+                empty.update("Failed to load playlist")
+                return
+
             title = data.get("title", "Unknown Playlist")
             author = data.get("author", {})
             owner = author.get("name", "Unknown") if isinstance(author, dict) else str(author)
