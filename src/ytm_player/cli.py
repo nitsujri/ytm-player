@@ -340,6 +340,68 @@ def search(query: tuple[str, ...], filter_type: str | None, limit: int, compact_
 
 
 # ---------------------------------------------------------------------------
+# Open URL (require TUI running)
+# ---------------------------------------------------------------------------
+
+
+def _parse_ytm_url(url: str) -> tuple[str, str]:
+    """Extract (type, id) from a YouTube Music URL or bare ID.
+
+    Returns e.g. ("playlist", "RDATgf") or ("album", "MPREb_xxx").
+    """
+    from urllib.parse import parse_qs, urlparse
+
+    parsed = urlparse(url)
+
+    # Handle full URLs: https://music.youtube.com/playlist?list=XXX
+    if parsed.hostname and "youtube" in parsed.hostname:
+        qs = parse_qs(parsed.query)
+        path = parsed.path.rstrip("/")
+
+        if path == "/playlist" and "list" in qs:
+            return ("playlist", qs["list"][0])
+        if path.startswith("/channel/"):
+            return ("artist", path.split("/channel/")[1])
+        if path.startswith("/browse/"):
+            browse_id = path.split("/browse/")[1]
+            if browse_id.startswith("MPRE"):
+                return ("album", browse_id)
+            if browse_id.startswith("UC"):
+                return ("artist", browse_id)
+            return ("playlist", browse_id)
+        # /watch?v=XXX&list=YYY
+        if "list" in qs:
+            return ("playlist", qs["list"][0])
+
+    # Bare ID heuristics
+    bare = url.strip()
+    if bare.startswith("MPRE"):
+        return ("album", bare)
+    if bare.startswith("UC") or bare.startswith("MPLA"):
+        return ("artist", bare)
+    return ("playlist", bare)
+
+
+@main.command("open")
+@click.argument("url")
+def open_url(url: str) -> None:
+    """Open a YouTube Music URL or playlist/album/artist ID in the TUI.
+
+    Examples:\n
+      ytm open 'https://music.youtube.com/playlist?list=RDATgf'\n
+      ytm open RDATgf\n
+      ytm open PLs-KumUAgjvTKw_yLpnkyOHtAuZRsuzUg
+    """
+    _require_tui()
+    context_type, context_id = _parse_ytm_url(url)
+    resp = _ipc("navigate", {"type": context_type, "id": context_id})
+    if resp.get("ok"):
+        click.echo(f"Opened {context_type}: {context_id}")
+    else:
+        _error(resp.get("error", "unknown error"))
+
+
+# ---------------------------------------------------------------------------
 # Queue group (require TUI running)
 # ---------------------------------------------------------------------------
 

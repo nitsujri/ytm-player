@@ -63,6 +63,9 @@ class IPCMixin:
                     self.queue.clear()
                     return {"ok": True}
 
+                case "navigate":
+                    return await self._ipc_navigate(args)
+
                 case _:
                     return {"ok": False, "error": f"unknown command: {command}"}
         except Exception as exc:
@@ -194,3 +197,14 @@ class IPCMixin:
             self.queue.add(normalized[0])
             return {"ok": True}
         return {"ok": False, "error": "failed to normalize track"}
+
+    async def _ipc_navigate(self, args: dict) -> dict:
+        """Navigate to a playlist, album, or artist by ID."""
+        context_type = args.get("type", "playlist")
+        context_id = args.get("id", "")
+        if not context_id:
+            return {"ok": False, "error": "missing id"}
+        if context_type not in ("playlist", "album", "artist"):
+            return {"ok": False, "error": f"unsupported type: {context_type}"}
+        await self.navigate_to("context", context_type=context_type, context_id=context_id)
+        return {"ok": True}
