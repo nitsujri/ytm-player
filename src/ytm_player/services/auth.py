@@ -109,9 +109,9 @@ class AuthManager:
         except (json.JSONDecodeError, OSError):
             return False
 
-    def create_ytmusic_client(self) -> YTMusic:
+    def create_ytmusic_client(self, user: str | None = None) -> YTMusic:
         """Create a YTMusic client from the stored auth file."""
-        return YTMusic(str(self._auth_file))
+        return YTMusic(str(self._auth_file), user=user)
 
     def validate(self) -> bool:
         """Verify that the auth credentials actually work.

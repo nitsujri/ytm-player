@@ -345,7 +345,10 @@ def run_import(spotify_url: str, auth_file: Path) -> None:
 
     # Step 2: Initialize YTM client.
     try:
-        ytmusic = YTMusic(str(auth_file))
+        from ytm_player.config.settings import get_settings
+
+        brand_account = get_settings().general.brand_account_id or None
+        ytmusic = YTMusic(str(auth_file), user=brand_account)
     except Exception as exc:
         console.print(f"[red]Failed to initialize YouTube Music client:[/red] {exc}")
         return

@@ -169,6 +169,9 @@ class ContextPage(Widget):
         self.error_message = ""
         self.run_worker(self._fetch_data(), name="fetch_context", exclusive=True)
 
+    # First batch size for progressive playlist loading.
+    _FIRST_BATCH = 300
+
     async def _fetch_data(self) -> dict[str, Any]:
         """Fetch data from ytmusic based on context_type."""
         ytmusic = self.app.ytmusic  # type: ignore[attr-defined]
@@ -178,25 +181,35 @@ class ContextPage(Widget):
             case "artist":
                 return await ytmusic.get_artist(self.context_id)
             case "playlist":
-                return await ytmusic.get_playlist(self.context_id)
+                return await ytmusic.get_playlist(self.context_id, limit=self._FIRST_BATCH)
             case _:
                 raise ValueError(f"Unknown context type: {self.context_type}")
 
     def on_worker_state_changed(self, event: Worker.StateChanged) -> None:
-        if event.worker.name != "fetch_context":
-            return
-
-        if event.state == WorkerState.SUCCESS:
-            self._data = event.worker.result or {}
-            self.loading = False
-            if not self._data:
-                self.error_message = "No data found."
-            else:
-                self._build_content()
-        elif event.state == WorkerState.ERROR:
-            self.loading = False
-            self.error_message = f"Failed to load {self.context_type}."
-            logger.exception("Failed to load %s %s", self.context_type, self.context_id)
+        if event.worker.name == "fetch_context":
+            if event.state == WorkerState.SUCCESS:
+                self._data = event.worker.result or {}
+                self.loading = False
+                if not self._data:
+                    self.error_message = "No data found."
+                else:
+                    self._build_content()
+            elif event.state == WorkerState.ERROR:
+                self.loading = False
+                self.error_message = f"Failed to load {self.context_type}."
+                logger.exception("Failed to load %s %s", self.context_type, self.context_id)
+        elif event.worker.name == "fetch_remaining":
+            if event.state == WorkerState.SUCCESS:
+                remaining = event.worker.result or []
+                if remaining:
+                    tracks = normalize_tracks(remaining)
+                    try:
+                        table = self.query_one("#context-tracks", TrackTable)
+                        table.append_tracks(tracks)
+                    except Exception:
+                        logger.debug("Failed to append remaining tracks", exc_info=True)
+            elif event.state == WorkerState.ERROR:
+                logger.debug("Background fetch for remaining tracks failed", exc_info=True)
 
     def watch_loading(self, loading: bool) -> None:
         try:
@@ -270,8 +283,11 @@ class ContextPage(Widget):
         raw_tracks = data.get("tracks", [])
         tracks = normalize_tracks(raw_tracks)
         track_count = len(tracks)
+        total_count = data.get("trackCount") or track_count
 
         subtitle = f"{owner} \u00b7 {track_count} track{'s' if track_count != 1 else ''}"
+        if total_count > track_count:
+            subtitle += f" (loading {total_count} total\u2026)"
 
         header = Vertical(classes="context-header")
         container.mount(header)
@@ -290,6 +306,19 @@ class ContextPage(Widget):
         table = TrackTable(show_album=True, id="context-tracks")
         container.mount(table)
         table.load_tracks(tracks)
+
+        # Kick off background fetch for remaining tracks if the first batch
+        # didn't cover the full playlist.
+        if total_count > len(raw_tracks):
+            self.run_worker(
+                self._fetch_remaining_tracks(len(raw_tracks)),
+                name="fetch_remaining",
+            )
+
+    async def _fetch_remaining_tracks(self, already_have: int) -> list[dict]:
+        """Background fetch for tracks beyond the first batch."""
+        ytmusic = self.app.ytmusic  # type: ignore[attr-defined]
+        return await ytmusic.get_playlist_remaining(self.context_id, already_have)
 
     def _build_artist(self, container: Vertical) -> None:
         data = self._data

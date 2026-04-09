@@ -126,6 +126,9 @@ class LibraryPage(Widget):
     # Data loading
     # ------------------------------------------------------------------
 
+    # First batch size for progressive playlist loading.
+    _FIRST_BATCH = 300
+
     async def load_playlist(self, playlist_id: str) -> None:
         """Fetch and display a playlist's tracks."""
         self._active_playlist_id = playlist_id
@@ -138,7 +141,9 @@ class LibraryPage(Widget):
         loading.display = True
 
         try:
-            data = await self.app.ytmusic.get_playlist(playlist_id, order="recently_added")
+            data = await self.app.ytmusic.get_playlist(
+                playlist_id, limit=self._FIRST_BATCH, order="recently_added"
+            )
 
             # If user selected a different playlist while we were loading, discard.
             if self._active_playlist_id != playlist_id:
@@ -150,6 +155,7 @@ class LibraryPage(Widget):
             raw_tracks = data.get("tracks", [])
             tracks = normalize_tracks(raw_tracks)
             track_count = len(tracks)
+            total_count = data.get("trackCount") or track_count
 
             # Update header.
             header = self.query_one("#content-header", Vertical)
@@ -157,7 +163,10 @@ class LibraryPage(Widget):
             header.display = True
             await header.mount(Label(title, classes="content-title"))
             subtitle = f"{owner} \u00b7 {track_count} track{'s' if track_count != 1 else ''}"
-            await header.mount(Label(subtitle, classes="content-subtitle"))
+            if total_count > track_count:
+                subtitle += f" (loading {total_count} total\u2026)"
+            self._subtitle_label = Label(subtitle, classes="content-subtitle")
+            await header.mount(self._subtitle_label)
             unavailable = len(raw_tracks) - track_count
             if unavailable:
                 await header.mount(
@@ -173,12 +182,40 @@ class LibraryPage(Widget):
             # Restore cursor position or scroll to the currently-playing track.
             self._restore_track_cursor(table)
 
+            # Kick off background fetch for remaining tracks.
+            if total_count > len(raw_tracks):
+                self.run_worker(
+                    self._fetch_remaining(playlist_id, len(raw_tracks)),
+                    name="fetch-remaining",
+                )
+
         except Exception:
             logger.exception("Failed to load playlist %s", playlist_id)
             loading.display = False
             self.query_one("#empty-state").display = True
             empty = self.query_one("#empty-state", Static)
             empty.update("Failed to load playlist")
+
+    async def _fetch_remaining(self, playlist_id: str, already_have: int) -> None:
+        """Background fetch for tracks beyond the first batch."""
+        remaining = await self.app.ytmusic.get_playlist_remaining(
+            playlist_id, already_have, order="recently_added"
+        )
+        # Discard if user switched playlists while we were fetching.
+        if self._active_playlist_id != playlist_id:
+            return
+        if not remaining:
+            return
+        tracks = normalize_tracks(remaining)
+        try:
+            table = self.query_one("#library-tracks", TrackTable)
+            table.append_tracks(tracks)
+            # Update subtitle with final count.
+            total = len(table.tracks)
+            if hasattr(self, "_subtitle_label"):
+                self._subtitle_label.update(f"{total} track{'s' if total != 1 else ''}")
+        except Exception:
+            logger.debug("Failed to append remaining tracks in library", exc_info=True)
 
     def _restore_track_cursor(self, table: TrackTable) -> None:
         """Move cursor to the saved row, or to the currently-playing track."""

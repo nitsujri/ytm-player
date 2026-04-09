@@ -28,10 +28,14 @@ class YTMusicService:
     """
 
     def __init__(
-        self, auth_path: Path = AUTH_FILE, auth_manager: AuthManager | None = None
+        self,
+        auth_path: Path = AUTH_FILE,
+        auth_manager: AuthManager | None = None,
+        user: str | None = None,
     ) -> None:
         self._auth_path = auth_path
         self._auth_manager = auth_manager
+        self._user = user or None  # normalise "" → None
         self._ytm: YTMusic | None = None
         self._consecutive_api_failures: int = 0
 
@@ -40,18 +44,18 @@ class YTMusicService:
         """Lazily initialise and return the underlying YTMusic client."""
         if self._ytm is None:
             if self._auth_manager is not None:
-                self._ytm = self._auth_manager.create_ytmusic_client()
+                self._ytm = self._auth_manager.create_ytmusic_client(user=self._user)
             else:
-                self._ytm = YTMusic(str(self._auth_path))
+                self._ytm = YTMusic(str(self._auth_path), user=self._user)
         return self._ytm
 
-    async def _call(self, func: Any, *args: Any, **kwargs: Any) -> Any:
+    async def _call(self, func: Any, *args: Any, timeout: int | None = None, **kwargs: Any) -> Any:
         """Run a sync ytmusicapi method in a thread with timeout."""
-        timeout = get_settings().playback.api_timeout
+        effective_timeout = timeout if timeout is not None else get_settings().playback.api_timeout
         try:
             result = await asyncio.wait_for(
                 asyncio.to_thread(func, *args, **kwargs),
-                timeout=timeout,
+                timeout=effective_timeout,
             )
             self._consecutive_api_failures = 0
             return result
@@ -132,10 +136,12 @@ class YTMusicService:
             logger.debug("get_library_artists failed")
             return []
 
-    async def get_liked_songs(self, limit: int | None = None) -> list[dict[str, Any]]:
+    async def get_liked_songs(
+        self, limit: int | None = None, timeout: int | None = None
+    ) -> list[dict[str, Any]]:
         """Return tracks from the user's Liked Music playlist."""
         try:
-            playlist = await self._call(self.client.get_liked_songs, limit=limit)
+            playlist = await self._call(self.client.get_liked_songs, timeout=timeout, limit=limit)
             return playlist.get("tracks", []) if isinstance(playlist, dict) else []
         except Exception:
             logger.debug("get_liked_songs failed")
@@ -217,8 +223,15 @@ class YTMusicService:
         "recently_added": "ggMGKgQIABAB",
     }
 
+    # Timeout (seconds) for background fetches of large playlists.
+    _LARGE_PLAYLIST_TIMEOUT = 120
+
     async def get_playlist(
-        self, playlist_id: str, limit: int | None = None, order: str | None = None
+        self,
+        playlist_id: str,
+        limit: int | None = None,
+        order: str | None = None,
+        timeout: int | None = None,
     ) -> dict[str, Any]:
         """Return playlist metadata and tracks.
 
@@ -228,6 +241,7 @@ class YTMusicService:
             order: Sort order — ``"a_to_z"``, ``"z_to_a"``, or
                 ``"recently_added"``.  ``None`` uses the playlist's
                 server-side default.
+            timeout: Override the default API timeout (seconds).
         """
         try:
             params = self._ORDER_PARAMS.get(order or "")
@@ -243,13 +257,30 @@ class YTMusicService:
 
                 try:
                     client._send_request = _patched_send
-                    return await self._call(client.get_playlist, playlist_id, limit=limit)
+                    return await self._call(
+                        client.get_playlist, playlist_id, timeout=timeout, limit=limit
+                    )
                 finally:
                     client._send_request = original_send
-            return await self._call(self.client.get_playlist, playlist_id, limit=limit)
+            return await self._call(
+                self.client.get_playlist, playlist_id, timeout=timeout, limit=limit
+            )
         except Exception:
             logger.debug("get_playlist failed for %r", playlist_id)
             return {}
+
+    async def get_playlist_remaining(
+        self, playlist_id: str, already_have: int, order: str | None = None
+    ) -> list[dict[str, Any]]:
+        """Fetch all tracks for a playlist and return only those beyond *already_have*.
+
+        Uses an extended timeout since large playlists (1500+) need 30-60s.
+        """
+        data = await self.get_playlist(
+            playlist_id, limit=None, order=order, timeout=self._LARGE_PLAYLIST_TIMEOUT
+        )
+        all_tracks = data.get("tracks", [])
+        return all_tracks[already_have:]
 
     async def get_song(self, video_id: str) -> dict[str, Any]:
         """Return detailed info for a single song/video."""

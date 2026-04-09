@@ -320,9 +320,10 @@ def search(query: tuple[str, ...], filter_type: str | None, limit: int, compact_
     _require_auth()
     search_query = " ".join(query)
 
-    auth = AuthManager(cookies_file=get_settings().yt_dlp.cookies_file)
+    settings = get_settings()
+    auth = AuthManager(cookies_file=settings.yt_dlp.cookies_file)
     try:
-        ytm = auth.create_ytmusic_client()
+        ytm = auth.create_ytmusic_client(user=settings.general.brand_account_id or None)
         results = ytm.search(search_query, filter=filter_type, limit=limit)
     except Exception as exc:
         _error(f"Search failed: {exc}")

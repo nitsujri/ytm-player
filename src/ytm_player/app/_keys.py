@@ -187,6 +187,8 @@ class KeyHandlingMixin:
                     self.query_one("#lyrics-sidebar", LyricsSidebar).toggle_transliteration()
                 except Exception:
                     pass
+            case Action.TOGGLE_ALBUM_ART:
+                self._toggle_album_art()
             case Action.BROWSE:
                 await self.navigate_to("browse")
             case Action.HELP:

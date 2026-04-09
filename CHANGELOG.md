@@ -6,6 +6,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ---
 
+### v1.5.5 (2026-04-09)
+
+**New**
+- Textual native theme support — all 18 built-in themes (nord, dracula, gruvbox, catppuccin, etc.) work via `Ctrl+P` → "Change theme". Theme selection persists across sessions. Custom **ytm-dark** theme registered as default (fixes [#23](https://github.com/peternaame-boop/ytm-player/issues/23), thanks @dsafxP)
+- CLI like/dislike/unlike commands — `ytm like`, `ytm dislike`, `ytm unlike` to rate the current track via IPC (thanks @moschi, PR [#26](https://github.com/peternaame-boop/ytm-player/pull/26))
+- Brand Account support — set `brand_account_id` in `config.toml` under `[general]` to use a YouTube Brand Account (fixes [#25](https://github.com/peternaame-boop/ytm-player/issues/25), thanks @nitsujri)
+- Toggle album art — `Ctrl+A` hides/shows album art in the playback bar (thanks @valkyrieglasc, [#28](https://github.com/peternaame-boop/ytm-player/issues/28))
+
+**Fixes**
+- Fixed large playlists (1500+) failing to load — progressive loading fetches first 300 tracks immediately, then loads remaining in background with extended timeout. Applies to playlists, liked songs, and sidebar play-all (fixes [#24](https://github.com/peternaame-boop/ytm-player/issues/24), thanks @Jxshua17 @dmnmsc @nitsujri; fixes [#27](https://github.com/peternaame-boop/ytm-player/issues/27), thanks @valkyrieglasc)
+
+---
+
 ### v1.5.2 (2026-03-17)
 
 **Fixes**

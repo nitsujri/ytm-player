@@ -69,6 +69,14 @@ class SessionMixin:
         # Always start with lyrics sidebar closed regardless of previous session.
         self._lyrics_sidebar_open = False
 
+        # Restore Textual theme from last session.
+        saved_theme = state.get("theme")
+        if saved_theme and isinstance(saved_theme, str):
+            try:
+                self.theme = saved_theme
+            except Exception:
+                pass
+
         # Restore transliteration toggle state (session overrides config).
         if "transliteration_enabled" in state:
             try:
@@ -143,6 +151,7 @@ class SessionMixin:
             "sidebar_per_page": self._sidebar_per_page,
             "lyrics_sidebar_open": self._lyrics_sidebar_open,
             "transliteration_enabled": self._get_transliteration_state(),
+            "theme": self.theme,
         }
         try:
             from ytm_player.config.paths import SECURE_FILE_MODE, secure_chmod

@@ -101,6 +101,9 @@ class LikedSongsPage(Widget):
         table.display = False
         self.run_worker(self._load_liked_songs(), group="liked-load")
 
+    # First batch size for progressive loading.
+    _FIRST_BATCH = 300
+
     async def _load_liked_songs(self) -> None:
         ytmusic = self.app.ytmusic  # type: ignore[attr-defined]
         if not ytmusic:
@@ -108,13 +111,17 @@ class LikedSongsPage(Widget):
             return
 
         try:
-            raw_tracks = await ytmusic.get_liked_songs()
+            raw_tracks = await ytmusic.get_liked_songs(limit=self._FIRST_BATCH)
             self._tracks = normalize_tracks(raw_tracks)
         except Exception:
             logger.exception("Failed to load liked songs")
             self._tracks = []
 
         self._refresh_table()
+
+        # Kick off background fetch if the first batch was full (likely more tracks).
+        if len(self._tracks) >= self._FIRST_BATCH:
+            self.run_worker(self._fetch_remaining_liked(), group="liked-remaining")
 
     def _refresh_table(self) -> None:
         table = self.query_one("#liked-table", DataTable)
@@ -148,6 +155,46 @@ class LikedSongsPage(Widget):
         self._restore_cursor_row = None
         if row is not None and 0 <= row < table.row_count:
             table.move_cursor(row=row)
+
+    async def _fetch_remaining_liked(self) -> None:
+        """Background fetch for liked songs beyond the first batch."""
+        from ytm_player.services.ytmusic import YTMusicService
+
+        ytmusic = self.app.ytmusic  # type: ignore[attr-defined]
+        if not ytmusic:
+            return
+        try:
+            remaining_raw = await ytmusic.get_liked_songs(
+                limit=None, timeout=YTMusicService._LARGE_PLAYLIST_TIMEOUT
+            )
+        except Exception:
+            logger.debug("Background fetch for remaining liked songs failed", exc_info=True)
+            return
+
+        # Slice off the tracks we already have.
+        remaining_raw = remaining_raw[len(self._tracks) :]
+        if not remaining_raw:
+            return
+
+        remaining = normalize_tracks(remaining_raw)
+        start_idx = len(self._tracks)
+        self._tracks.extend(remaining)
+
+        try:
+            table = self.query_one("#liked-table", DataTable)
+            for i, track in enumerate(remaining, start=start_idx):
+                title = track.get("title", "Unknown")
+                artist = extract_artist(track)
+                dur = extract_duration(track)
+                dur_str = format_duration(dur) if dur else "--:--"
+                row_key = table.add_row(str(i + 1), title, artist, dur_str, key=f"liked_{i}")
+                self._row_keys.append(row_key)
+
+            self.track_count = len(self._tracks)
+            footer = self.query_one("#liked-footer", Static)
+            footer.update(f"{len(self._tracks)} liked songs")
+        except Exception:
+            logger.debug("Failed to append remaining liked songs", exc_info=True)
 
     def get_nav_state(self) -> dict[str, Any]:
         """Return state to preserve when navigating away."""

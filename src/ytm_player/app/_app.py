@@ -107,6 +107,12 @@ class YTMPlayerApp(
     def __init__(self) -> None:
         super().__init__()
 
+        # Register custom YTM theme and set as default.
+        from ytm_player.ui.theme import YTM_DARK
+
+        self.register_theme(YTM_DARK)
+        self.theme = "ytm-dark"
+
         # Configuration.
         self.settings: Settings = get_settings()
         self.keymap: KeyMap = get_keymap()
@@ -171,35 +177,67 @@ class YTMPlayerApp(
         self._lyrics_sidebar_open: bool = False
 
     def get_css_variables(self) -> dict[str, str]:
-        """Inject theme colors as Textual CSS variables ($var-name)."""
+        """Inject app-specific CSS variables alongside Textual's theme variables.
+
+        Base colors (primary, background, surface, etc.) come from the
+        active Textual theme.  App-specific variables are derived from
+        the theme's palette when not explicitly provided by the theme.
+        """
         variables = super().get_css_variables()
-        tc = getattr(self, "theme_colors", None) or get_theme()
-        variables.update(
-            {
-                "background": tc.background,
-                "foreground": tc.foreground,
-                "primary": tc.primary,
-                "secondary": tc.secondary,
-                "accent": tc.accent,
-                "success": tc.success,
-                "warning": tc.warning,
-                "error": tc.error,
-                "playback-bar-bg": tc.playback_bar_bg,
-                "active-tab": tc.active_tab,
-                "inactive-tab": tc.inactive_tab,
-                "selected-item": tc.selected_item,
-                "progress-filled": tc.progress_filled,
-                "progress-empty": tc.progress_empty,
-                "lyrics-played": tc.lyrics_played,
-                "lyrics-current": tc.lyrics_current,
-                "lyrics-upcoming": tc.lyrics_upcoming,
-                "border": tc.border,
-                "text-muted": tc.muted_text,
-                "surface": tc.surface,
-                "text": tc.text,
-            }
-        )
+
+        # App-specific variables — derive from theme palette if not set.
+        app_defaults = {
+            "playback-bar-bg": variables.get("surface", "#1a1a1a"),
+            "active-tab": variables.get("text", "#ffffff"),
+            "inactive-tab": variables.get("text-muted", "#999999"),
+            "selected-item": variables.get("surface", "#2a2a2a"),
+            "progress-filled": variables.get("primary", "#ff0000"),
+            "progress-empty": variables.get("surface", "#555555"),
+            "lyrics-played": variables.get("text-muted", "#999999"),
+            "lyrics-current": variables.get("success", "#2ecc71"),
+            "lyrics-upcoming": variables.get("text", "#aaaaaa"),
+        }
+        for key, default in app_defaults.items():
+            if key not in variables:
+                variables[key] = default
+
         return variables
+
+    def watch_theme(self, theme_name: str) -> None:
+        """Rebuild ThemeColors when the Textual theme changes."""
+        from ytm_player.ui.theme import ThemeColors, set_theme
+
+        try:
+            t = self.current_theme
+            v = t.variables
+            tc = ThemeColors(
+                primary=t.primary,
+                background=t.background or "#0f0f0f",
+                foreground=t.foreground or "#ffffff",
+                secondary=t.secondary or "#aaaaaa",
+                accent=t.accent or "#ff4e45",
+                success=t.success or "#2ecc71",
+                warning=t.warning or "#f39c12",
+                error=t.error or "#e74c3c",
+                surface=t.surface or "#1a1a1a",
+                text=t.foreground or "#ffffff",
+                muted_text=t.secondary or "#999999",
+                border=t.surface or "#333333",
+                playback_bar_bg=v.get("playback-bar-bg", t.surface or "#1a1a1a"),
+                active_tab=v.get("active-tab", t.foreground or "#ffffff"),
+                inactive_tab=v.get("inactive-tab", t.secondary or "#999999"),
+                selected_item=v.get("selected-item", t.surface or "#2a2a2a"),
+                progress_filled=v.get("progress-filled", t.primary),
+                progress_empty=v.get("progress-empty", t.surface or "#555555"),
+                lyrics_played=v.get("lyrics-played", t.secondary or "#999999"),
+                lyrics_current=v.get("lyrics-current", t.success or "#2ecc71"),
+                lyrics_upcoming=v.get("lyrics-upcoming", t.foreground or "#aaaaaa"),
+            )
+            tc._apply_toml_overrides()
+            set_theme(tc)
+            self.theme_colors = tc
+        except Exception:
+            pass
 
     # ── Compose ──────────────────────────────────────────────────────
 
@@ -258,7 +296,11 @@ class YTMPlayerApp(
 
         # Initialize services.
         try:
-            self.ytmusic = YTMusicService(auth.auth_file, auth_manager=auth)
+            self.ytmusic = YTMusicService(
+                auth.auth_file,
+                auth_manager=auth,
+                user=self.settings.general.brand_account_id,
+            )
             self.player = Player()
             self.player.set_event_loop(asyncio.get_running_loop())
             self.stream_resolver = StreamResolver(self.settings.playback.audio_quality)

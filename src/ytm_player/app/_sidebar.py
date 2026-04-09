@@ -64,6 +64,16 @@ class SidebarMixin:
         except Exception:
             pass
 
+    def _toggle_album_art(self) -> None:
+        """Toggle album art visibility in the playback bar."""
+        try:
+            from ytm_player.ui.widgets.album_art import AlbumArt
+
+            art = self.query_one("#pb-art", AlbumArt)
+            art.display = not art.display
+        except Exception:
+            logger.debug("Failed to toggle album art visibility", exc_info=True)
+
     # ── Sidebar message handlers ─────────────────────────────────────
 
     def on_header_bar_toggle_playlist_sidebar(
@@ -83,6 +93,9 @@ class SidebarMixin:
         if playlist_id:
             await self.navigate_to("library", playlist_id=playlist_id)
 
+    # First batch size for progressive playlist loading.
+    _SIDEBAR_FIRST_BATCH = 300
+
     async def on_playlist_sidebar_playlist_double_clicked(
         self, message: PlaylistSidebar.PlaylistDoubleClicked
     ) -> None:
@@ -94,8 +107,11 @@ class SidebarMixin:
         if not playlist_id or not self.ytmusic:
             return
         try:
-            data = await self.ytmusic.get_playlist(playlist_id, order="recently_added")
-            tracks = normalize_tracks(data.get("tracks", []))
+            data = await self.ytmusic.get_playlist(
+                playlist_id, limit=self._SIDEBAR_FIRST_BATCH, order="recently_added"
+            )
+            raw_tracks = data.get("tracks", [])
+            tracks = normalize_tracks(raw_tracks)
             if not tracks:
                 self.notify("Playlist is empty", severity="warning")
                 return
@@ -104,9 +120,31 @@ class SidebarMixin:
             self.queue.jump_to(0)
             self._active_library_playlist_id = playlist_id
             await self.play_track(self.queue.current_track)
+
+            # Background-fetch remaining tracks and append to queue.
+            total_count = data.get("trackCount") or len(raw_tracks)
+            if total_count > len(raw_tracks):
+                self.run_worker(
+                    self._fetch_remaining_for_queue(playlist_id, len(raw_tracks)),
+                    name="sidebar-fetch-remaining",
+                )
         except Exception:
             logger.exception("Failed to load playlist %s for playback", playlist_id)
             self.notify("Failed to load playlist", severity="error")
+
+    async def _fetch_remaining_for_queue(self, playlist_id: str, already_have: int) -> None:
+        """Background fetch remaining tracks and append to the queue."""
+        from ytm_player.utils.formatting import normalize_tracks
+
+        try:
+            remaining = await self.ytmusic.get_playlist_remaining(
+                playlist_id, already_have, order="recently_added"
+            )
+            if remaining:
+                tracks = normalize_tracks(remaining)
+                self.queue.add_multiple(tracks)
+        except Exception:
+            logger.debug("Failed to fetch remaining playlist tracks for queue", exc_info=True)
 
     def on_playlist_sidebar_playlist_right_clicked(
         self, message: PlaylistSidebar.PlaylistRightClicked
