@@ -178,7 +178,7 @@ class ContextPage(Widget):
             case "artist":
                 return await ytmusic.get_artist(self.context_id)
             case "playlist":
-                return await ytmusic.get_playlist(self.context_id)
+                return await ytmusic.get_playlist(self.context_id, limit=500)
             case _:
                 raise ValueError(f"Unknown context type: {self.context_type}")
 

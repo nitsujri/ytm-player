@@ -94,7 +94,7 @@ class SidebarMixin:
         if not playlist_id or not self.ytmusic:
             return
         try:
-            data = await self.ytmusic.get_playlist(playlist_id, order="recently_added")
+            data = await self.ytmusic.get_playlist(playlist_id, limit=500, order="recently_added")
             tracks = normalize_tracks(data.get("tracks", []))
             if not tracks:
                 self.notify("Playlist is empty", severity="warning")

@@ -138,7 +138,9 @@ class LibraryPage(Widget):
         loading.display = True
 
         try:
-            data = await self.app.ytmusic.get_playlist(playlist_id, order="recently_added")
+            data = await self.app.ytmusic.get_playlist(
+                playlist_id, limit=500, order="recently_added"
+            )
 
             # If user selected a different playlist while we were loading, discard.
             if self._active_playlist_id != playlist_id:
