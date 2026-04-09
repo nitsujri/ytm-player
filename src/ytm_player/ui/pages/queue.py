@@ -34,6 +34,7 @@ class QueuePage(Widget):
         width: 1fr;
         height: 1fr;
     }
+
     .queue-now-playing {
         height: auto;
         max-height: 3;
