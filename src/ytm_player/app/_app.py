@@ -82,13 +82,11 @@ class YTMPlayerApp(
     #app-body {
         height: 1fr;
         width: 1fr;
-        overflow: hidden hidden;
     }
 
     #main-content {
         width: 1fr;
         height: 1fr;
-        overflow: hidden hidden;
     }
 
     #playback-bar {

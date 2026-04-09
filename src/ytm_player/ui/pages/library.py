@@ -6,7 +6,7 @@ import logging
 from typing import Any
 
 from textual.app import ComposeResult
-from textual.containers import Vertical
+from textual.containers import Horizontal, Vertical
 from textual.events import Click
 from textual.reactive import reactive
 from textual.widget import Widget
@@ -33,7 +33,6 @@ class LibraryPage(Widget):
         width: 1fr;
     }
 
-
     #content-header {
         height: auto;
         max-height: 5;
@@ -46,6 +45,11 @@ class LibraryPage(Widget):
 
     .content-subtitle {
         color: $text-muted;
+    }
+
+    .content-header-row {
+        height: auto;
+        width: 1fr;
     }
 
     #refresh-playlist-btn {
@@ -215,10 +219,12 @@ class LibraryPage(Widget):
         header = self.query_one("#content-header", Vertical)
         header.remove_children()
         header.display = True
-        header.mount(Label(title, classes="content-title"))
+        title_row = Horizontal(classes="content-header-row")
+        header.mount(title_row)
+        title_row.mount(Label(title, classes="content-title"))
+        title_row.mount(Static("[↻ Refresh]", id="refresh-playlist-btn", markup=True))
         subtitle = f"{owner} \u00b7 {track_count} track{'s' if track_count != 1 else ''}"
         header.mount(Label(subtitle, classes="content-subtitle"))
-        header.mount(Static("[↻ Refresh]", id="refresh-playlist-btn", markup=True))
         unavailable = len(raw_tracks) - track_count
         if unavailable:
             header.mount(
