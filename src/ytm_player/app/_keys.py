@@ -217,6 +217,12 @@ class KeyHandlingMixin:
             case Action.TRACK_ACTIONS:
                 await self._open_track_actions()
 
+            # -- Refresh playlist (force cache invalidation) --
+            case Action.REFRESH_PLAYLIST:
+                page = self._get_current_page()
+                if page and hasattr(page, "refresh_playlist"):
+                    await page.refresh_playlist()
+
             # -- Navigation actions delegated to the current page --
             case (
                 Action.MOVE_DOWN

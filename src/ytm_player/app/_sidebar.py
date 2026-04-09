@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from typing import Any
 
 from ytm_player.ui.header_bar import HeaderBar
 from ytm_player.ui.popups.actions import ActionsPopup
@@ -94,7 +95,17 @@ class SidebarMixin:
         if not playlist_id or not self.ytmusic:
             return
         try:
-            data = await self.ytmusic.get_playlist(playlist_id, limit=500, order="recently_added")
+            cache = getattr(self, "playlist_cache", None)
+            if cache:
+                data, needs_bg = await cache.get_playlist(
+                    self.ytmusic, playlist_id, order="recently_added"
+                )
+            else:
+                data = await self.ytmusic.get_playlist(
+                    playlist_id, limit=500, order="recently_added"
+                )
+                needs_bg = False
+
             tracks = normalize_tracks(data.get("tracks", []))
             if not tracks:
                 self.notify("Playlist is empty", severity="warning")
@@ -104,9 +115,37 @@ class SidebarMixin:
             self.queue.jump_to(0)
             self._active_library_playlist_id = playlist_id
             await self.play_track(self.queue.current_track)
+
+            # Background-fetch remaining tracks and update queue when done.
+            if needs_bg and cache:
+                self.notify(
+                    f"Playing {len(tracks)} tracks — fetching rest in background...",
+                    timeout=4,
+                )
+                self.run_worker(
+                    self._bg_fetch_and_update_queue(cache, playlist_id),
+                    name="bg-fetch-sidebar",
+                )
         except Exception:
             logger.exception("Failed to load playlist %s for playback", playlist_id)
             self.notify("Failed to load playlist", severity="error")
+
+    async def _bg_fetch_and_update_queue(self, cache: Any, playlist_id: str) -> None:
+        """Background-fetch all tracks and add new ones to the queue."""
+        from ytm_player.utils.formatting import normalize_tracks
+
+        data = await cache.background_fetch(self.ytmusic, playlist_id, order="recently_added")
+        if not data or self._active_library_playlist_id != playlist_id:
+            return
+        all_tracks = normalize_tracks(data.get("tracks", []))
+        existing_ids = {t.get("video_id") for t in self.queue.tracks}
+        new_tracks = [t for t in all_tracks if t.get("video_id") not in existing_ids]
+        if new_tracks:
+            self.queue.add_multiple(new_tracks)
+            self.notify(
+                f"Playlist fully cached — {len(new_tracks)} more tracks added to queue",
+                timeout=3,
+            )
 
     def on_playlist_sidebar_playlist_right_clicked(
         self, message: PlaylistSidebar.PlaylistRightClicked

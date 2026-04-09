@@ -91,6 +91,17 @@ class ContextPage(Widget):
     #add-to-library-btn:hover {
         background: $primary 30%;
     }
+    #refresh-playlist-btn {
+        width: auto;
+        min-width: 12;
+        height: 1;
+        margin: 0 0 0 1;
+        padding: 0 1;
+        color: $primary;
+    }
+    #refresh-playlist-btn:hover {
+        background: $primary 30%;
+    }
     .context-header-row {
         height: auto;
         width: 1fr;
@@ -151,6 +162,7 @@ class ContextPage(Widget):
         self.context_type = context_type
         self.context_id = context_id
         self._data: dict[str, Any] = {}
+        self._needs_bg_fetch: bool = False
         self._active_focus: str = "tracks"  # "tracks" or "albums" for artist view
 
     def compose(self) -> ComposeResult:
@@ -178,11 +190,23 @@ class ContextPage(Widget):
             case "artist":
                 return await ytmusic.get_artist(self.context_id)
             case "playlist":
+                cache = getattr(self.app, "playlist_cache", None)
+                if cache:
+                    data, self._needs_bg_fetch = await cache.get_playlist(ytmusic, self.context_id)
+                    return data
                 return await ytmusic.get_playlist(self.context_id, limit=500)
             case _:
                 raise ValueError(f"Unknown context type: {self.context_type}")
 
     def on_worker_state_changed(self, event: Worker.StateChanged) -> None:
+        if event.worker.name == "bg-fetch-context":
+            if event.state == WorkerState.SUCCESS and event.worker.result:
+                self._data = event.worker.result
+                track_count = len(self._data.get("tracks", []))
+                self.app.notify(f"Playlist fully cached ({track_count} tracks)", timeout=3)
+                self._build_content()
+            return
+
         if event.worker.name != "fetch_context":
             return
 
@@ -193,6 +217,21 @@ class ContextPage(Widget):
                 self.error_message = "No data found."
             else:
                 self._build_content()
+                # Kick off background fetch if initial load was partial.
+                if self._needs_bg_fetch and self.context_type == "playlist":
+                    self._needs_bg_fetch = False
+                    tc = len(self._data.get("tracks", []))
+                    self.app.notify(
+                        f"Loaded {tc} tracks — fetching remaining in background...",
+                        timeout=4,
+                    )
+                    cache = getattr(self.app, "playlist_cache", None)
+                    if cache:
+                        self.run_worker(
+                            cache.background_fetch(self.app.ytmusic, self.context_id),
+                            name="bg-fetch-context",
+                            exclusive=True,
+                        )
         elif event.state == WorkerState.ERROR:
             self.loading = False
             self.error_message = f"Failed to load {self.context_type}."
@@ -279,6 +318,7 @@ class ContextPage(Widget):
         header.mount(title_row)
         title_row.mount(Label("[b]Playlist[/b]", markup=True))
         title_row.mount(Static("[+ Add to Library]", id="add-to-library-btn", markup=True))
+        title_row.mount(Static("[↻ Refresh]", id="refresh-playlist-btn", markup=True))
         header.mount(Label(title, classes="context-title"))
         header.mount(Label(subtitle, classes="context-subtitle"))
         unavailable = len(raw_tracks) - track_count
@@ -357,11 +397,32 @@ class ContextPage(Widget):
     # ── Events ────────────────────────────────────────────────────────
 
     def on_click(self, event: Click) -> None:
-        """Handle clicks on the add-to-library button."""
+        """Handle clicks on action buttons."""
         widget = event.widget
         if widget.id == "add-to-library-btn":
             event.stop()
             self.run_worker(self._add_to_library(), name="add_to_lib", exclusive=True)
+        elif widget.id == "refresh-playlist-btn":
+            event.stop()
+            self.run_worker(self._refresh_playlist(), name="refresh_playlist", exclusive=True)
+
+    async def refresh_playlist(self) -> None:
+        """Force-refresh the current playlist (called by hotkey dispatch)."""
+        if self.context_type == "playlist":
+            self.run_worker(self._refresh_playlist(), name="refresh_playlist", exclusive=True)
+
+    async def _refresh_playlist(self) -> None:
+        """Force-refresh the playlist via cache invalidation."""
+        cache = getattr(self.app, "playlist_cache", None)
+        ytmusic = self.app.ytmusic  # type: ignore[attr-defined]
+        if not cache:
+            return
+        self.app.notify("Refreshing playlist...", timeout=2)
+        data, _ = await cache.get_playlist(ytmusic, self.context_id, force_refresh=True)
+        if data:
+            self._data = data
+            self._build_content()
+            self.app.notify(f"Refreshed ({len(data.get('tracks', []))} tracks)", timeout=3)
 
     async def _add_to_library(self) -> None:
         """Add the current album or playlist to the user's library."""

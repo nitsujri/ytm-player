@@ -65,6 +65,8 @@ class Action(str, Enum):
     ADD_TO_PLAYLIST = "add_to_playlist"
     FILTER = "filter"
 
+    REFRESH_PLAYLIST = "refresh_playlist"
+
     # Sorting
     SORT_TITLE = "sort_title"
     SORT_ARTIST = "sort_artist"
@@ -132,6 +134,7 @@ DEFAULT_BINDINGS: dict[str, list[str]] = {
     "add_to_queue": ["Z", "C-z"],
     "add_to_playlist": ["A"],
     "filter": ["/"],
+    "refresh_playlist": ["R"],
     # Sorting
     "sort_title": ["s t"],
     "sort_artist": ["s a"],

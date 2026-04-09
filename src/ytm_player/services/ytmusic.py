@@ -263,6 +263,49 @@ class YTMusicService:
             logger.warning("get_playlist failed for %r", playlist_id, exc_info=True)
             return {}
 
+    async def get_playlist_uncapped(
+        self, playlist_id: str, order: str | None = None
+    ) -> dict[str, Any]:
+        """Fetch a playlist with no track limit and an extended timeout.
+
+        Used by the playlist cache service for background full-fetches of
+        large playlists (3000+ tracks) that would exceed the normal API timeout.
+        """
+        try:
+            params = self._ORDER_PARAMS.get(order or "")
+            client = self.client
+
+            if params:
+                original_send = client._send_request
+
+                def _patched_send(endpoint: str, body: dict, *a: Any, **kw: Any) -> Any:
+                    if endpoint == "browse" and isinstance(body, dict):
+                        body["params"] = params
+                    return original_send(endpoint, body, *a, **kw)
+
+                try:
+                    client._send_request = _patched_send
+                    return await asyncio.wait_for(
+                        asyncio.to_thread(client.get_playlist, playlist_id, limit=None),
+                        timeout=120,
+                    )
+                except Exception:
+                    logger.debug(
+                        "Uncapped get_playlist with order=%r failed for %r, retrying without",
+                        order,
+                        playlist_id,
+                    )
+                finally:
+                    client._send_request = original_send
+
+            return await asyncio.wait_for(
+                asyncio.to_thread(self.client.get_playlist, playlist_id, limit=None),
+                timeout=120,
+            )
+        except Exception:
+            logger.warning("get_playlist_uncapped failed for %r", playlist_id, exc_info=True)
+            return {}
+
     async def get_song(self, video_id: str) -> dict[str, Any]:
         """Return detailed info for a single song/video."""
         try:

@@ -30,6 +30,7 @@ from ytm_player.services.lastfm import LastFMService
 from ytm_player.services.mediakeys import MediaKeysService
 from ytm_player.services.mpris import MPRISService
 from ytm_player.services.player import Player, PlayerEvent
+from ytm_player.services.playlist_cache import PlaylistCacheService
 from ytm_player.services.queue import QueueManager
 from ytm_player.services.stream import StreamResolver
 from ytm_player.services.ytmusic import YTMusicService
@@ -119,6 +120,7 @@ class YTMPlayerApp(
         self.stream_resolver: StreamResolver | None = None
         self.history: HistoryManager | None = None
         self.cache: CacheManager | None = None
+        self.playlist_cache: PlaylistCacheService | None = None
         self.mpris: MPRISService | None = None
         self.mac_media: Any = None
         self.mac_eventtap: Any = None
@@ -269,6 +271,8 @@ class YTMPlayerApp(
             await self.history.init()
             self.cache = CacheManager()
             await self.cache.init()
+            self.playlist_cache = PlaylistCacheService()
+            await self.playlist_cache.init()
         except Exception as exc:
             logger.exception("Failed to initialize services")
             self.notify(
@@ -400,6 +404,9 @@ class YTMPlayerApp(
 
         if self.history:
             await self.history.close()
+
+        if self.playlist_cache:
+            await self.playlist_cache.close()
 
         if self.cache:
             await self.cache.close()
