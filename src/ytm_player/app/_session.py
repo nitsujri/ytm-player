@@ -125,8 +125,7 @@ class SessionMixin:
             except Exception:
                 logger.debug("Failed to read player volume for session save", exc_info=True)
 
-        # Serialize queue tracks (limit to 500 to keep file size reasonable).
-        queue_tracks = list(self.queue.tracks)[:500]
+        queue_tracks = list(self.queue.tracks)
         queue_index = self.queue.current_index
 
         # Build resume data: save current track + position on unclean exit,

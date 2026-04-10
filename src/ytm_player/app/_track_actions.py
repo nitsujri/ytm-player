@@ -91,9 +91,11 @@ class TrackActionsMixin:
                 self.run_worker(self._download_track(track))
             elif action_id == "play_next":
                 self.queue.add_next(track)
+                self._refresh_queue_page()
                 self.notify("Playing next", timeout=2)
             elif action_id == "add_to_queue":
                 self.queue.add(track)
+                self._refresh_queue_page()
                 self.notify("Added to queue", timeout=2)
             elif action_id == "start_radio":
                 self.run_worker(self._start_radio_for(track))
@@ -144,6 +146,16 @@ class TrackActionsMixin:
                         self.notify(link, timeout=5)
 
         self.push_screen(ActionsPopup(track, item_type="track"), _handle_action_result)
+
+    def _refresh_queue_page(self) -> None:
+        """Refresh the queue page if it's currently displayed."""
+        try:
+            from ytm_player.ui.pages.queue import QueuePage
+
+            queue_page = self.query_one(QueuePage)
+            queue_page._refresh_queue()
+        except Exception:
+            pass
 
     def on_track_table_track_right_clicked(self, message: TrackTable.TrackRightClicked) -> None:
         """Handle right-click on any TrackTable -- open actions popup."""

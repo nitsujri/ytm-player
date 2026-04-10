@@ -92,6 +92,7 @@ class TrackTable(DataTable):
         self._playing_video_id: str | None = None
         self._playing_index: int | None = None
         self._right_clicked: bool = False
+        self._suppress_select_on_refocus: bool = False
         self._sort_column: str | None = None
         self._sort_reverse: bool = False
         # Column resize drag state.
@@ -361,6 +362,12 @@ class TrackTable(DataTable):
         if self._right_clicked:
             self._right_clicked = False
             return
+        # Suppress the spurious RowSelected that fires when a modal popup
+        # (e.g. ActionsPopup) dismisses and focus returns to this table.
+        # The flag is set on right-click and consumed here once.
+        if self._suppress_select_on_refocus:
+            self._suppress_select_on_refocus = False
+            return
         row_idx = event.cursor_row
         if 0 <= row_idx < len(self._tracks):
             self.post_message(self.TrackSelected(self._tracks[row_idx], row_idx))
@@ -377,6 +384,7 @@ class TrackTable(DataTable):
             event.stop()
             event.prevent_default()
             self._right_clicked = True
+            self._suppress_select_on_refocus = True
             meta = event.style.meta
             row_idx = meta.get("row") if meta else None
             if row_idx is not None and 0 <= row_idx < len(self._tracks):

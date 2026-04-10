@@ -142,7 +142,7 @@ class _RepeatButton(Widget):
         padding: 0 1;
     }
     _RepeatButton:hover {
-        background: $border;
+        background: $accent 30%;
     }
     """
 
@@ -180,7 +180,7 @@ class _ShuffleButton(Widget):
         padding: 0 1;
     }
     _ShuffleButton:hover {
-        background: $border;
+        background: $accent 30%;
     }
     """
 
@@ -347,7 +347,7 @@ class _FooterButton(Widget):
         padding: 0 1;
     }
     _FooterButton:hover {
-        background: $border;
+        background: $accent 30%;
     }
     """
 

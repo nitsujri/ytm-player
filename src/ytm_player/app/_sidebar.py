@@ -146,6 +146,25 @@ class SidebarMixin:
         except Exception:
             logger.debug("Failed to fetch remaining playlist tracks for queue", exc_info=True)
 
+    async def _add_playlist_to_queue(self, playlist_id: str) -> None:
+        """Fetch playlist tracks and add them to the queue."""
+        from ytm_player.utils.formatting import normalize_tracks
+
+        if not self.ytmusic:
+            return
+        try:
+            data = await self.ytmusic.get_playlist(playlist_id)
+            tracks = normalize_tracks(data.get("tracks", []))
+            if tracks:
+                self.queue.add_multiple(tracks)
+                self._refresh_queue_page()
+                self.notify(f"Added {len(tracks)} tracks to queue", timeout=2)
+            else:
+                self.notify("Playlist is empty", severity="warning", timeout=2)
+        except Exception:
+            logger.debug("Failed to add playlist to queue", exc_info=True)
+            self.notify("Failed to add to queue", severity="error", timeout=2)
+
     def on_playlist_sidebar_playlist_right_clicked(
         self, message: PlaylistSidebar.PlaylistRightClicked
     ) -> None:
@@ -173,7 +192,11 @@ class SidebarMixin:
                 if pid:
                     self.run_worker(self.navigate_to("library", playlist_id=pid))
             elif action_id == "add_to_queue":
-                self.notify("Added to queue", timeout=2)
+                pid = item.get("playlistId") or item.get("browseId")
+                if pid:
+                    self.run_worker(self._add_playlist_to_queue(pid))
+                else:
+                    self.notify("No playlist ID found", severity="error", timeout=2)
             elif action_id == "delete":
                 from ytm_player.ui.popups.confirm_popup import ConfirmPopup
 

@@ -19,6 +19,76 @@ from ytm_player.utils.formatting import copy_to_clipboard, truncate
 
 logger = logging.getLogger(__name__)
 
+# Bounce animation speed (seconds per character shift).
+_BOUNCE_INTERVAL = 0.25
+# Pause at each end before reversing direction (seconds).
+_BOUNCE_PAUSE = 1.5
+
+
+class _BouncingLabel(Static):
+    """A label that bounces horizontally when the text overflows.
+
+    Call ``start_bounce(width)`` to begin the animation and
+    ``stop_bounce()`` to reset to the truncated static view.
+    """
+
+    DEFAULT_CSS = """
+    _BouncingLabel {
+        height: 1;
+        overflow: hidden;
+    }
+    """
+
+    def __init__(self, full_text: str, **kwargs: Any) -> None:
+        super().__init__(truncate(full_text, 60), **kwargs)
+        self._full_text = full_text
+        self._offset: int = 0
+        self._direction: int = 1  # 1 = moving left, -1 = moving right
+        self._visible_width: int = 0
+        self._timer: Any = None
+        self._pause_remaining: float = 0.0
+
+    def start_bounce(self, visible_width: int) -> None:
+        """Start bouncing if the text overflows the visible width."""
+        # Account for padding (1 char each side from ListItem).
+        self._visible_width = max(visible_width - 4, 10)
+        if len(self._full_text) <= self._visible_width:
+            return
+        self._offset = 0
+        self._direction = 1
+        self._pause_remaining = _BOUNCE_PAUSE
+        self.update(self._full_text[: self._visible_width])
+        if self._timer is None:
+            self._timer = self.set_interval(_BOUNCE_INTERVAL, self._tick)
+
+    def stop_bounce(self) -> None:
+        """Stop bouncing and reset to truncated text."""
+        if self._timer is not None:
+            self._timer.stop()
+            self._timer = None
+        self._offset = 0
+        self.update(truncate(self._full_text, 60))
+
+    def _tick(self) -> None:
+        """Advance the bounce animation by one step."""
+        if self._pause_remaining > 0:
+            self._pause_remaining -= _BOUNCE_INTERVAL
+            return
+
+        max_offset = len(self._full_text) - self._visible_width
+        self._offset += self._direction
+        if self._offset >= max_offset:
+            self._offset = max_offset
+            self._direction = -1
+            self._pause_remaining = _BOUNCE_PAUSE
+        elif self._offset <= 0:
+            self._offset = 0
+            self._direction = 1
+            self._pause_remaining = _BOUNCE_PAUSE
+
+        visible = self._full_text[self._offset : self._offset + self._visible_width]
+        self.update(visible)
+
 
 # ---------------------------------------------------------------------------
 # LibraryPanel (moved from library.py)
@@ -55,6 +125,10 @@ class LibraryPanel(Widget):
     LibraryPanel ListView {
         height: 1fr;
         width: 1fr;
+    }
+
+    LibraryPanel ListView ListItem:hover {
+        background: $accent 30%;
     }
 
     LibraryPanel .panel-loading {
@@ -154,9 +228,12 @@ class LibraryPanel(Widget):
     def _rebuild_list(self, items: list[dict[str, Any]]) -> None:
         list_view = self.query_one(ListView)
         list_view.clear()
+        self._bouncing_labels: list[_BouncingLabel] = []
         for item in items:
-            label = self._format_item(item)
-            list_view.append(ListItem(Label(label)))
+            full_text = self._format_item(item)
+            lbl = _BouncingLabel(full_text)
+            self._bouncing_labels.append(lbl)
+            list_view.append(ListItem(lbl))
         count_label = self.query_one(".panel-count", Static)
         total = len(self._items)
         shown = len(items)
@@ -169,8 +246,8 @@ class LibraryPanel(Widget):
         title = item.get("title", item.get("name", "Unknown"))
         count = item.get("count")
         if count is not None:
-            return truncate(f"{title} ({count} tracks)", 60)
-        return truncate(title, 60)
+            return f"{title} ({count} tracks)"
+        return title
 
     # -- Filtering --
 
@@ -213,6 +290,23 @@ class LibraryPanel(Widget):
             self.filter_visible = False
             list_view = self.query_one(ListView)
             list_view.focus()
+
+    # -- Highlight bounce --
+
+    def on_list_view_highlighted(self, event: ListView.Highlighted) -> None:
+        """Start bouncing the highlighted item's label if it overflows."""
+        # Stop all bouncing labels first.
+        for lbl in getattr(self, "_bouncing_labels", []):
+            lbl.stop_bounce()
+        # Start bouncing the newly highlighted one.
+        idx = event.list_view.index
+        labels = getattr(self, "_bouncing_labels", [])
+        if idx is not None and 0 <= idx < len(labels):
+            try:
+                sidebar_width = self.parent.styles.width.value if self.parent else 30
+            except Exception:
+                sidebar_width = 30
+            labels[idx].start_bounce(int(sidebar_width))
 
     # -- Selection --
 
@@ -316,7 +410,7 @@ class PlaylistSidebar(Widget):
     }
 
     .ps-pinned-item:hover {
-        background: $border;
+        background: $accent 30%;
         color: $text;
     }
 

@@ -49,21 +49,12 @@ class PlaybackProgress(Widget):
         self,
         *,
         bar_style: str = "block",
-        filled_color: str | None = None,
-        empty_color: str | None = None,
-        time_color: str | None = None,
-        marker_color: str | None = None,
         name: str | None = None,
         id: str | None = None,
         classes: str | None = None,
     ) -> None:
         super().__init__(name=name, id=id, classes=classes)
-        theme = get_theme()
         self._bar_style = bar_style
-        self._filled_color = filled_color or theme.progress_filled
-        self._empty_color = empty_color or theme.progress_empty
-        self._time_color = time_color or theme.secondary
-        self._marker_color = marker_color or theme.foreground
 
         # Scroll-seek preview state.
         self._preview_position: float | None = None
@@ -94,8 +85,14 @@ class PlaybackProgress(Widget):
         filled_count = int(bar_width * self.progress)
         empty_count = bar_width - filled_count
 
+        theme = get_theme()
+        filled_color = theme.progress_filled
+        empty_color = theme.progress_empty
+        time_color = theme.secondary
+        marker_color = theme.foreground
+
         result = Text()
-        result.append(time_prefix, style=self._time_color)
+        result.append(time_prefix, style=time_color)
 
         if self._preview_position is not None and bar_width > 0:
             # Show a marker at the preview position.
@@ -108,16 +105,16 @@ class PlaybackProgress(Widget):
 
             for i in range(bar_width):
                 if i == marker_col:
-                    result.append(self.MARKER, style=f"bold {self._marker_color}")
+                    result.append(self.MARKER, style=f"bold {marker_color}")
                 elif i < filled_count:
                     result.append(
                         self.BLOCK_FILLED if self._bar_style == "block" else self.LINE_FILLED,
-                        style=self._filled_color,
+                        style=filled_color,
                     )
                 else:
                     result.append(
                         self.BLOCK_EMPTY if self._bar_style == "block" else self.LINE_EMPTY,
-                        style=self._empty_color,
+                        style=empty_color,
                     )
         else:
             # Normal rendering (no preview).
@@ -131,10 +128,10 @@ class PlaybackProgress(Widget):
                 filled_str = self.BLOCK_FILLED * filled_count
                 empty_str = self.BLOCK_EMPTY * empty_count
 
-            result.append(filled_str, style=self._filled_color)
-            result.append(empty_str, style=self._empty_color)
+            result.append(filled_str, style=filled_color)
+            result.append(empty_str, style=empty_color)
 
-        result.append(time_suffix, style=self._time_color)
+        result.append(time_suffix, style=time_color)
         return result
 
     # ── Click to seek ─────────────────────────────────────────────

@@ -6,6 +6,21 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ---
 
+### v1.5.6 (2026-04-10)
+
+**New**
+- Bouncing playlist names — long playlist titles in the sidebar now bounce (scroll back and forth) when highlighted, so you can read the full name (thanks @dmnmsc, [#32](https://github.com/peternaame-boop/ytm-player/issues/32))
+
+**Fixes**
+- Fixed "Add to Queue" / "Play Next" doing nothing — popup dismissal was triggering a spurious track selection that cleared the queue immediately after adding. Now suppressed with a refocus guard (fixes [#30](https://github.com/peternaame-boop/ytm-player/issues/30), thanks @dmnmsc)
+- Fixed sidebar "Add to Queue" only showing a notification without actually adding tracks — now fetches the playlist and queues all tracks (fixes [#30](https://github.com/peternaame-boop/ytm-player/issues/30))
+- Fixed theme colors not updating in header bar when switching themes — migrated toggle labels from Rich Text to CSS classes (fixes [#37](https://github.com/peternaame-boop/ytm-player/issues/37), thanks @Villoh)
+- Fixed progress bar colors not updating on theme switch — colors now read at render time instead of construction time (fixes [#39](https://github.com/peternaame-boop/ytm-player/issues/39), thanks @Villoh)
+- Fixed hover backgrounds making text invisible — all hover states now use `$accent 30%` instead of `$border`
+- Removed 500-track limit on session queue restore — full queue now persists regardless of size (fixes [#31](https://github.com/peternaame-boop/ytm-player/issues/31), thanks @dmnmsc)
+
+---
+
 ### v1.5.5 (2026-04-09)
 
 **New**
