@@ -124,6 +124,7 @@ class YTMPlayerApp(
         self.mpris: MPRISService | None = None
         self.mac_media: Any = None
         self.mac_eventtap: Any = None
+        self.mac_audio_route: Any = None
         self.mediakeys: MediaKeysService | None = None
         self.discord: DiscordRPC | None = None
         self.lastfm: LastFMService | None = None
@@ -315,6 +316,14 @@ class YTMPlayerApp(
                     timeout=8,
                 )
 
+        # Pause playback when the macOS default audio output changes
+        # (AirPods disconnect, switch to phone, headphones unplug, etc).
+        if sys.platform == "darwin" and self.settings.playback.pause_on_disconnect:
+            from ytm_player.services.macos_audio_route import MacOSAudioRouteMonitor
+
+            self.mac_audio_route = MacOSAudioRouteMonitor(self.player)
+            self.mac_audio_route.start()
+
         # Start Discord Rich Presence if enabled.
         if self.settings.discord.enabled:
             self.discord = DiscordRPC()
@@ -398,6 +407,9 @@ class YTMPlayerApp(
 
         if self.mac_eventtap:
             self.mac_eventtap.stop()
+
+        if self.mac_audio_route:
+            await self.mac_audio_route.stop()
 
         if self.discord:
             await self.discord.disconnect()

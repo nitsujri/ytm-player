@@ -28,6 +28,7 @@ class PlaybackSettings:
     default_volume: int = 80
     seek_step: int = 5
     gapless: bool = True
+    pause_on_disconnect: bool = True
     api_timeout: int = 15
 
 
