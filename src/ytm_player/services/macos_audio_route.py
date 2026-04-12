@@ -19,12 +19,11 @@ import asyncio
 import ctypes
 import logging
 import sys
-from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    from ytm_player.services.player import Player
+from collections.abc import Awaitable, Callable
 
 logger = logging.getLogger(__name__)
+
+RouteChangeCallback = Callable[[], Awaitable[None]]
 
 # Poll interval — fast enough to feel responsive when AirPods drop,
 # slow enough to be invisible in CPU usage. CoreAudio queries are
@@ -88,10 +87,15 @@ class _CoreAudio:
 
 
 class MacOSAudioRouteMonitor:
-    """Polls the macOS default output device and pauses on route change."""
+    """Polls the macOS default output device and invokes a callback on change.
 
-    def __init__(self, player: Player) -> None:
-        self._player = player
+    The callback is expected to pause playback and release any macOS media
+    control state so ytm-player doesn't fight with whichever other source
+    (iPhone, Apple Music, etc.) is taking over the active audio route.
+    """
+
+    def __init__(self, on_route_change: RouteChangeCallback) -> None:
+        self._on_route_change = on_route_change
         self._task: asyncio.Task | None = None
         self._coreaudio: _CoreAudio | None = None
         self._last_device_id: int | None = None
@@ -137,11 +141,10 @@ class MacOSAudioRouteMonitor:
                     current,
                 )
                 self._last_device_id = current
-                if self._player.is_playing:
-                    try:
-                        await self._player.pause()
-                    except Exception:
-                        logger.exception("Failed to pause on audio route change")
+                try:
+                    await self._on_route_change()
+                except Exception:
+                    logger.exception("Audio route change callback failed")
         except asyncio.CancelledError:
             raise
         except Exception:

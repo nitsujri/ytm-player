@@ -84,16 +84,57 @@ class MacOSMediaService:
         if mp is None:
             logger.info("MediaPlayer bindings unavailable at runtime")
             return
-        center = mp.MPRemoteCommandCenter.sharedCommandCenter()
+        self._register_all_commands()
+
+        self._running = True
+        self._publish_now_playing()
+        logger.info("macOS media key integration enabled")
+
+    def _register_all_commands(self) -> None:
+        """Register MPRemoteCommandCenter handlers. Safe to call repeatedly."""
+        if not _MEDIA_PLAYER_AVAILABLE or _MP is None:
+            return
+        if self._registered_targets:
+            return
+        center = _MP.MPRemoteCommandCenter.sharedCommandCenter()
         self._register_command(center.playCommand(), "play")
         self._register_command(center.pauseCommand(), "pause")
         self._register_command(center.togglePlayPauseCommand(), "play_pause")
         self._register_command(center.nextTrackCommand(), "next")
         self._register_command(center.previousTrackCommand(), "previous")
 
-        self._running = True
-        self._publish_now_playing()
-        logger.info("macOS media key integration enabled")
+    def handoff_to_system(self) -> None:
+        """Release control of the macOS Now Playing slot.
+
+        Removes MPRemoteCommand handlers and clears Now Playing info so
+        macOS stops forwarding play/pause/next commands to ytm-player
+        and hands the active-media-app slot to whichever other source
+        (iPhone, Apple Music, etc.) wants it. The service remains
+        ``_running`` so a later update_playback_status("playing") can
+        re-register and republish via :meth:`_reactivate`.
+        """
+        if not self._running or _MP is None:
+            return
+        for command, target in self._registered_targets:
+            try:
+                command.removeTarget_(target)
+            except Exception:
+                logger.debug("Failed to remove media command target", exc_info=True)
+        self._registered_targets.clear()
+        try:
+            _MP.MPNowPlayingInfoCenter.defaultCenter().setNowPlayingInfo_(None)
+        except Exception:
+            logger.debug("Failed to clear macOS Now Playing info", exc_info=True)
+        self._is_playing = False
+        logger.info("macOS media control handed off to system")
+
+    def _reactivate(self) -> None:
+        """Re-register command handlers after a previous handoff."""
+        if not self._running:
+            return
+        if not self._registered_targets:
+            self._register_all_commands()
+            logger.info("macOS media control reactivated")
 
     def stop(self) -> None:
         """Unregister command handlers and clear Now Playing state."""
@@ -138,6 +179,8 @@ class MacOSMediaService:
         self._now_playing[_DURATION_KEY] = duration_seconds
         self._now_playing.setdefault(_ELAPSED_KEY, 0.0)
         self._now_playing.setdefault(_RATE_KEY, 1.0 if self._is_playing else 0.0)
+        # Updating metadata implies we want the Now Playing slot back.
+        self._reactivate()
         self._publish_now_playing()
 
     async def update_playback_status(self, status: str) -> None:
@@ -147,12 +190,20 @@ class MacOSMediaService:
 
         normalized = status.lower()
         self._is_playing = normalized == "playing"
+        # If we handed off and we're transitioning back to playing,
+        # reclaim the Now Playing slot before republishing.
+        if self._is_playing:
+            self._reactivate()
+        elif not self._registered_targets:
+            # We're paused and already handed off — stay quiet so we
+            # don't re-register ourselves as the active media app.
+            return
         self._now_playing[_RATE_KEY] = 1.0 if self._is_playing else 0.0
         self._publish_now_playing(playback_status=normalized)
 
     def update_position(self, position_us: int) -> None:
         """Update elapsed playback position in seconds."""
-        if not self._running:
+        if not self._running or not self._registered_targets:
             return
 
         self._now_playing[_ELAPSED_KEY] = max(0.0, position_us / 1_000_000)

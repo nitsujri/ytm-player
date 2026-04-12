@@ -318,10 +318,24 @@ class YTMPlayerApp(
 
         # Pause playback when the macOS default audio output changes
         # (AirPods disconnect, switch to phone, headphones unplug, etc).
+        # Also hand off the macOS Now Playing slot so ytm-player doesn't
+        # fight the iPhone/other source for active-media-app state.
         if sys.platform == "darwin" and self.settings.playback.pause_on_disconnect:
             from ytm_player.services.macos_audio_route import MacOSAudioRouteMonitor
 
-            self.mac_audio_route = MacOSAudioRouteMonitor(self.player)
+            async def _on_audio_route_change() -> None:
+                if self.player and self.player.is_playing:
+                    try:
+                        await self.player.pause()
+                    except Exception:
+                        logger.debug("pause on route change failed", exc_info=True)
+                if self.mac_media:
+                    try:
+                        self.mac_media.handoff_to_system()
+                    except Exception:
+                        logger.debug("mac_media handoff failed", exc_info=True)
+
+            self.mac_audio_route = MacOSAudioRouteMonitor(_on_audio_route_change)
             self.mac_audio_route.start()
 
         # Start Discord Rich Presence if enabled.
