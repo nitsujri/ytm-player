@@ -72,6 +72,7 @@ class MacOSEventTapService:
         self._run_loop: Any = None
         self._thread: threading.Thread | None = None
         self._ready = threading.Event()
+        self.should_dispatch: Callable[[], bool] = lambda: True
 
     async def start(
         self,
@@ -158,15 +159,18 @@ class MacOSEventTapService:
         if action is None:
             return event
 
-        callback = self._callbacks.get(action)
-        if callback is None or self._loop is None or self._loop.is_closed():
-            return event
+        # Only dispatch when MPRemoteCommandCenter isn't already handling
+        # the same commands — otherwise AirPods in-ear detection and
+        # similar events get processed twice (once as a discrete
+        # play/pause via the command center, once as a toggle here),
+        # causing inverted behavior.
+        if self.should_dispatch():
+            callback = self._callbacks.get(action)
+            if callback is not None and self._loop is not None and not self._loop.is_closed():
+                try:
+                    self._loop.call_soon_threadsafe(lambda cb=callback: asyncio.ensure_future(cb()))
+                except RuntimeError:
+                    logger.debug("Event loop closed, cannot dispatch macOS event-tap key")
 
-        try:
-            self._loop.call_soon_threadsafe(lambda cb=callback: asyncio.ensure_future(cb()))
-        except RuntimeError:
-            logger.debug("Event loop closed, cannot dispatch macOS event-tap key")
-            return event
-
-        # Swallow event so Apple Music does not steal media-key presses.
+        # Always swallow so Apple Music does not steal media-key presses.
         return None

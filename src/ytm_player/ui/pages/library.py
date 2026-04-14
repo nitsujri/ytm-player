@@ -146,10 +146,26 @@ class LibraryPage(Widget):
     # ------------------------------------------------------------------
 
     async def load_playlist(self, playlist_id: str, force_refresh: bool = False) -> None:
-        """Fetch and display a playlist's tracks (cache-backed)."""
+        """Display a playlist's tracks, showing cached data instantly."""
         self._active_playlist_id = playlist_id
+        cache = getattr(self.app, "playlist_cache", None)
 
-        # Show loading state.
+        # Show cached data immediately if available.
+        if cache and not force_refresh:
+            cached_data = await cache.get_cached(playlist_id)
+            if cached_data and cached_data.get("tracks"):
+                self.query_one("#empty-state").display = False
+                self.query_one("#loading-state").display = False
+                self._render_playlist(cached_data)
+                # Kick off background staleness check.
+                self.run_worker(
+                    self._background_refresh(playlist_id, force=False),
+                    name="bg-refresh-playlist",
+                    exclusive=True,
+                )
+                return
+
+        # No cache (or force refresh) — show loading state while we fetch.
         self.query_one("#empty-state").display = False
         self.query_one("#library-tracks").display = False
         self.query_one("#content-header").display = False
@@ -158,53 +174,31 @@ class LibraryPage(Widget):
         loading.display = True
 
         try:
-            cache = getattr(self.app, "playlist_cache", None)
             if cache:
-                data, needs_bg = await cache.get_playlist(
-                    self.app.ytmusic,
-                    playlist_id,
-                    order="recently_added",
-                    force_refresh=force_refresh,
-                    on_progress=self._update_loading_status,
+                data = await cache.refresh(
+                    self.app.ytmusic, playlist_id, order="recently_added", force=force_refresh
                 )
             else:
                 data = await self.app.ytmusic.get_playlist(
                     playlist_id, limit=500, order="recently_added"
                 )
-                needs_bg = False
 
-            # If user selected a different playlist while we were loading, discard.
             if self._active_playlist_id != playlist_id:
                 return
 
-            if not data:
+            if not data or not data.get("tracks"):
                 loading.display = False
                 self.query_one("#empty-state").display = True
-                empty = self.query_one("#empty-state", Static)
-                empty.update("Failed to load playlist")
+                self.query_one("#empty-state", Static).update("Failed to load playlist")
                 return
 
             self._render_playlist(data)
-
-            # Kick off background fetch for remaining tracks if needed.
-            if needs_bg and cache:
-                track_count = len(data.get("tracks", []))
-                self.app.notify(
-                    f"Loaded {track_count} tracks — fetching remaining in background...",
-                    timeout=4,
-                )
-                self.run_worker(
-                    self._background_fetch(cache, playlist_id),
-                    name="bg-fetch-playlist",
-                    exclusive=True,
-                )
 
         except Exception:
             logger.exception("Failed to load playlist %s", playlist_id)
             loading.display = False
             self.query_one("#empty-state").display = True
-            empty = self.query_one("#empty-state", Static)
-            empty.update("Failed to load playlist")
+            self.query_one("#empty-state", Static).update("Failed to load playlist")
 
     def _render_playlist(self, data: dict[str, Any]) -> None:
         """Build the header and populate the track table from playlist data."""
@@ -241,21 +235,19 @@ class LibraryPage(Widget):
         # Restore cursor position or scroll to the currently-playing track.
         self._restore_track_cursor(table)
 
-    def _update_loading_status(self, message: str) -> None:
-        """Callback for cache service to update the loading label."""
+    async def _background_refresh(self, playlist_id: str, force: bool = False) -> None:
+        """Background staleness check — re-renders only if data changed."""
+        cache = getattr(self.app, "playlist_cache", None)
+        if not cache:
+            return
         try:
-            loading = self.query_one("#loading-state", Static)
-            loading.update(message)
+            fresh = await cache.refresh(
+                self.app.ytmusic, playlist_id, order="recently_added", force=force
+            )
+            if fresh and self._active_playlist_id == playlist_id:
+                self._render_playlist(fresh)
         except Exception:
-            pass
-
-    async def _background_fetch(self, cache: Any, playlist_id: str) -> None:
-        """Fetch all tracks in the background and reload when done."""
-        data = await cache.background_fetch(self.app.ytmusic, playlist_id, order="recently_added")
-        if data and self._active_playlist_id == playlist_id:
-            track_count = len(data.get("tracks", []))
-            self.app.notify(f"Playlist fully cached ({track_count} tracks)", timeout=3)
-            self._render_playlist(data)
+            logger.debug("Background refresh failed for %s", playlist_id, exc_info=True)
 
     def _restore_track_cursor(self, table: TrackTable) -> None:
         """Move cursor to the saved row, or to the currently-playing track."""

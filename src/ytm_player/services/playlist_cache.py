@@ -1,4 +1,11 @@
-"""Playlist metadata and track cache backed by SQLite."""
+"""Playlist metadata and track cache backed by SQLite.
+
+Cache-first architecture: callers get cached data instantly via
+``get_cached()``, then kick off ``refresh()`` in a background worker.
+Each playlist has at most one active refresh task — concurrent callers
+(including navigating away and back) reattach to the same in-flight
+operation rather than starting a new one.
+"""
 
 from __future__ import annotations
 
@@ -6,7 +13,7 @@ import asyncio
 import json
 import logging
 from datetime import datetime, timezone
-from typing import Any, Callable
+from typing import Any
 
 import aiosqlite
 
@@ -28,18 +35,16 @@ CREATE TABLE IF NOT EXISTS playlist_cache (
 );
 """
 
-# Cache entries older than this are always re-fetched.
 _MAX_AGE_SECONDS = 7 * 24 * 3600  # 1 week
 
 
 class PlaylistCacheService:
-    """Cache playlist track lists in SQLite to avoid repeated slow API fetches."""
+    """SQLite-backed playlist cache with per-playlist background refresh."""
 
     def __init__(self, db_path: str | None = None) -> None:
         self._db_path = db_path or str(CACHE_DB)
         self._db: aiosqlite.Connection | None = None
-        # Guards against duplicate concurrent fetches for the same playlist.
-        self._fetching: dict[str, asyncio.Event] = {}
+        self._refreshing: dict[str, asyncio.Task[dict[str, Any] | None]] = {}
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -62,101 +67,52 @@ class PlaylistCacheService:
     # Public API
     # ------------------------------------------------------------------
 
-    async def get_playlist(
+    async def get_cached(self, playlist_id: str) -> dict[str, Any] | None:
+        """Read from cache instantly. No API calls, no staleness checks.
+
+        Returns None only if the playlist has never been cached.
+        """
+        row = await self._get_cached(playlist_id)
+        if row is None:
+            return None
+        return self._reconstruct(row)
+
+    async def refresh(
         self,
         ytmusic: Any,
         playlist_id: str,
         order: str | None = None,
-        force_refresh: bool = False,
-        on_progress: Callable[[str], None] | None = None,
-    ) -> tuple[dict[str, Any], bool]:
-        """Return playlist data, using cache when possible.
+        force: bool = False,
+    ) -> dict[str, Any] | None:
+        """Check staleness and update the cache if needed.
+
+        At most one refresh task runs per playlist.  If a refresh is
+        already in progress, the caller transparently awaits the same
+        task — no duplicate API calls.
 
         Returns:
-            (playlist_data, needs_background_fetch) — if needs_background_fetch
-            is True the caller should kick off ``background_fetch`` in a worker.
+            Fresh playlist data if the cache was updated, or ``None`` if
+            the cache was already fresh (caller can keep showing what
+            ``get_cached()`` returned).
         """
-        if self._db is None:
-            # Cache not available — fall back to direct fetch.
-            data = await ytmusic.get_playlist(playlist_id, limit=500, order=order)
-            return data, False
+        existing = self._refreshing.get(playlist_id)
+        if existing is not None and not existing.done():
+            return await asyncio.shield(existing)
 
-        # 1. Force refresh — skip cache entirely.
-        if force_refresh:
-            if on_progress:
-                on_progress("Refreshing playlist...")
-            return await self._fetch_and_cache(ytmusic, playlist_id, order, on_progress)
-
-        # 2. Check local cache.
-        cached = await self._get_cached(playlist_id)
-
-        if cached is not None:
-            # 3a. Order mismatch — re-fetch.
-            if order and cached["order_param"] != order:
-                if on_progress:
-                    on_progress("Loading playlist (re-sorting)...")
-                return await self._fetch_and_cache(ytmusic, playlist_id, order, on_progress)
-
-            # 3b. Age check — if older than 1 week, always re-fetch.
-            age = self._cache_age_seconds(cached["fetched_at"])
-            if age > _MAX_AGE_SECONDS:
-                if on_progress:
-                    on_progress("Updating stale playlist cache...")
-                return await self._fetch_and_cache(ytmusic, playlist_id, order, on_progress)
-
-            # 3c. Quick metadata probe to check freshness.
+        async def _task() -> dict[str, Any] | None:
             try:
-                if on_progress:
-                    on_progress("Checking for updates...")
-                probe = await ytmusic.get_playlist(playlist_id, limit=1)
-                if self._is_stale(cached, probe):
-                    if on_progress:
-                        on_progress("Playlist updated — reloading...")
-                    return await self._fetch_and_cache(ytmusic, playlist_id, order, on_progress)
-            except Exception:
-                logger.debug("Metadata probe failed for %r, using cache", playlist_id)
+                return await self._do_refresh(ytmusic, playlist_id, order, force)
+            finally:
+                self._refreshing.pop(playlist_id, None)
 
-            # Cache is fresh — return it.
-            return self._reconstruct(cached), False
+        task = asyncio.create_task(_task())
+        self._refreshing[playlist_id] = task
+        return await asyncio.shield(task)
 
-        # 4. No cache — do a standard fetch and cache it.
-        if on_progress:
-            on_progress("Loading playlist...")
-        return await self._fetch_and_cache(ytmusic, playlist_id, order, on_progress)
-
-    async def background_fetch(
-        self,
-        ytmusic: Any,
-        playlist_id: str,
-        order: str | None = None,
-    ) -> dict[str, Any] | None:
-        """Fetch all tracks for a playlist and store in cache.
-
-        Returns the full playlist data, or None on failure.
-        Uses a concurrency guard so only one fetch per playlist runs at a time.
-        """
-        # Concurrency guard.
-        if playlist_id in self._fetching:
-            event = self._fetching[playlist_id]
-            await event.wait()
-            # Another fetch completed — return from cache.
-            cached = await self._get_cached(playlist_id)
-            return self._reconstruct(cached) if cached else None
-
-        event = asyncio.Event()
-        self._fetching[playlist_id] = event
-        try:
-            data = await ytmusic.get_playlist_uncapped(playlist_id, order=order)
-            if data and data.get("tracks"):
-                await self._store(playlist_id, data, order)
-                return data
-            return None
-        except Exception:
-            logger.warning("Background fetch failed for %r", playlist_id, exc_info=True)
-            return None
-        finally:
-            event.set()
-            self._fetching.pop(playlist_id, None)
+    def is_refreshing(self, playlist_id: str) -> bool:
+        """True if a background refresh is in progress for this playlist."""
+        task = self._refreshing.get(playlist_id)
+        return task is not None and not task.done()
 
     async def invalidate(self, playlist_id: str) -> None:
         """Remove a single playlist from cache."""
@@ -173,48 +129,83 @@ class PlaylistCacheService:
         await self._db.commit()
 
     # ------------------------------------------------------------------
-    # Internal helpers
+    # Refresh logic
     # ------------------------------------------------------------------
 
-    async def _fetch_and_cache(
+    async def _do_refresh(
         self,
         ytmusic: Any,
         playlist_id: str,
         order: str | None,
-        on_progress: Callable[[str], None] | None,
-    ) -> tuple[dict[str, Any], bool]:
-        """Fetch with limit=500, cache it, and signal background fetch needed
-        if there are likely more tracks."""
+        force: bool,
+    ) -> dict[str, Any] | None:
+        if self._db is None:
+            data = await ytmusic.get_playlist(playlist_id, limit=500, order=order)
+            return data or None
+
+        cached = await self._get_cached(playlist_id)
+
+        if cached is not None and not force:
+            if order and cached["order_param"] != order:
+                return await self._fetch_full(ytmusic, playlist_id, order)
+
+            age = self._cache_age_seconds(cached["fetched_at"])
+            if age > _MAX_AGE_SECONDS:
+                return await self._fetch_full(ytmusic, playlist_id, order)
+
+            try:
+                probe = await ytmusic.get_playlist(playlist_id, limit=1)
+                if self._is_stale(cached, probe):
+                    return await self._fetch_full(ytmusic, playlist_id, order)
+            except Exception:
+                logger.debug("Metadata probe failed for %r, keeping cache", playlist_id)
+
+            return None
+
+        return await self._fetch_full(ytmusic, playlist_id, order)
+
+    async def _fetch_full(
+        self,
+        ytmusic: Any,
+        playlist_id: str,
+        order: str | None,
+    ) -> dict[str, Any] | None:
+        """Fetch a playlist, cache it, and fetch all remaining tracks."""
         try:
             data = await ytmusic.get_playlist(playlist_id, limit=500, order=order)
         except Exception:
             logger.warning("Playlist fetch failed for %r", playlist_id)
-            return {}, False
+            return None
 
-        if not data:
-            return {}, False
+        if not data or not data.get("tracks"):
+            return None
 
-        tracks = data.get("tracks", [])
+        tracks = data["tracks"]
         track_count = data.get("trackCount")
 
-        # If we got fewer tracks than trackCount, a background fetch is needed.
-        needs_bg = track_count is not None and len(tracks) < track_count
+        # Cache the initial batch so navigating away/back shows it.
+        await self._store(playlist_id, data, order)
 
-        # For radio/mix playlists where trackCount is null but we hit the limit,
-        # assume there are more.
-        if track_count is None and len(tracks) >= 500:
-            needs_bg = True
+        needs_more = (track_count is not None and len(tracks) < track_count) or (
+            track_count is None and len(tracks) >= 500
+        )
 
-        # Only store if we have more tracks than the existing cache entry,
-        # to avoid overwriting a full background-fetched cache with a partial result.
-        existing = await self._get_cached(playlist_id)
-        if not existing or len(tracks) >= existing["cached_track_count"]:
-            await self._store(playlist_id, data, order)
+        if needs_more:
+            try:
+                full = await ytmusic.get_playlist_uncapped(playlist_id, order=order)
+                if full and full.get("tracks"):
+                    await self._store(playlist_id, full, order)
+                    return full
+            except Exception:
+                logger.debug("Uncapped fetch failed for %r, returning partial", playlist_id)
 
-        return data, needs_bg
+        return data
+
+    # ------------------------------------------------------------------
+    # SQLite helpers
+    # ------------------------------------------------------------------
 
     async def _get_cached(self, playlist_id: str) -> dict[str, Any] | None:
-        """Load a cache entry from SQLite."""
         if self._db is None:
             return None
         async with self._db.execute(
@@ -226,13 +217,10 @@ class PlaylistCacheService:
         return dict(row)
 
     async def _store(self, playlist_id: str, data: dict[str, Any], order: str | None) -> None:
-        """Write playlist data to the cache."""
         if self._db is None:
             return
-
         tracks = data.get("tracks", [])
         metadata = {k: v for k, v in data.items() if k != "tracks"}
-
         await self._db.execute(
             """
             INSERT OR REPLACE INTO playlist_cache
@@ -254,23 +242,21 @@ class PlaylistCacheService:
         )
         await self._db.commit()
 
+    # ------------------------------------------------------------------
+    # Staleness detection
+    # ------------------------------------------------------------------
+
     def _is_stale(self, cached: dict[str, Any], probe: dict[str, Any]) -> bool:
-        """Compare cached entry against a fresh metadata probe."""
         cached_tc = cached.get("track_count")
         probe_tc = probe.get("trackCount")
 
-        # trackCount changed (for playlists that report it).
         if cached_tc is not None and probe_tc is not None and cached_tc != probe_tc:
             return True
 
-        # Radio/mix playlists (trackCount is null) have randomized content —
-        # duration_seconds changes on every request.  Rely on age-based expiry
-        # and manual refresh instead of the unreliable duration signal.
+        # Radio/mix playlists have randomized content — skip duration check.
         if cached_tc is None and probe_tc is None:
             return False
 
-        # For regular playlists with a known trackCount, a duration shift
-        # beyond 5% suggests content changed even if count stayed the same.
         cached_dur = cached.get("duration_seconds")
         probe_dur = probe.get("duration_seconds")
         if cached_dur and probe_dur:
@@ -282,7 +268,6 @@ class PlaylistCacheService:
         return False
 
     def _reconstruct(self, cached: dict[str, Any]) -> dict[str, Any]:
-        """Rebuild the full playlist dict from a cache row."""
         try:
             metadata = json.loads(cached["metadata_json"])
         except (json.JSONDecodeError, TypeError):
@@ -296,7 +281,6 @@ class PlaylistCacheService:
 
     @staticmethod
     def _cache_age_seconds(fetched_at: str | None) -> float:
-        """Return the age of a cache entry in seconds."""
         if not fetched_at:
             return float("inf")
         try:

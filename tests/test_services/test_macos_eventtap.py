@@ -73,7 +73,8 @@ class TestTapCallback:
         assert result is None
         await asyncio.wait_for(fired.wait(), timeout=1)
 
-    async def test_passthrough_when_not_mapped(self) -> None:
+    async def test_swallows_when_not_mapped(self) -> None:
+        """Media keys are swallowed even without a callback (blocks Apple Music)."""
         svc = MacOSEventTapService()
         svc._running = True
         svc._loop = asyncio.get_running_loop()
@@ -93,4 +94,4 @@ class TestTapCallback:
         ):
             result = svc._tap_callback(None, 14, source_event, None)
 
-        assert result is source_event
+        assert result is None

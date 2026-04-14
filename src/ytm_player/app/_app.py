@@ -308,6 +308,14 @@ class YTMPlayerApp(
             self.mac_eventtap = MacOSEventTapService()
             callbacks = self._build_mpris_callbacks()
             await self.mac_media.start(callbacks, asyncio.get_running_loop())
+            # When MPRemoteCommandCenter is active, the event tap must
+            # only swallow events (block Apple Music) without dispatching
+            # callbacks — otherwise AirPods in-ear detection etc. get
+            # handled twice and behavior inverts.  The callable checks
+            # mac_media state dynamically so handoff/reactivate cycles
+            # work automatically.
+            mac_media_ref = self.mac_media
+            self.mac_eventtap.should_dispatch = lambda: not mac_media_ref.is_handling_commands
             tap_started = await self.mac_eventtap.start(callbacks, asyncio.get_running_loop())
             if not tap_started:
                 self.notify(

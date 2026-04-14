@@ -128,6 +128,11 @@ class MacOSMediaService:
         self._is_playing = False
         logger.info("macOS media control handed off to system")
 
+    @property
+    def is_handling_commands(self) -> bool:
+        """True when MPRemoteCommandCenter handlers are registered."""
+        return self._running and bool(self._registered_targets)
+
     def _reactivate(self) -> None:
         """Re-register command handlers after a previous handoff."""
         if not self._running:
