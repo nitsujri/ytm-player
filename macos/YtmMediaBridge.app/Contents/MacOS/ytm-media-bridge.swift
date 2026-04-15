@@ -8,21 +8,25 @@ struct YtmMediaBridge {
     static func main() {
         let center = MPRemoteCommandCenter.shared()
 
+        // AirPods in-ear detection dispatches togglePlayPauseCommand for
+        // both removal and insertion. Map it to `ytm pause` so removal
+        // stops playback and insertion is a no-op (pause is idempotent).
+        // Resuming must happen via an explicit play (keyboard / UI).
         center.togglePlayPauseCommand.isEnabled = true
         center.togglePlayPauseCommand.addTarget { _ in
-            run("toggle")
+            run("pause")
             return .success
         }
 
         center.playCommand.isEnabled = true
         center.playCommand.addTarget { _ in
-            run("toggle")
+            run("play")
             return .success
         }
 
         center.pauseCommand.isEnabled = true
         center.pauseCommand.addTarget { _ in
-            run("toggle")
+            run("pause")
             return .success
         }
 

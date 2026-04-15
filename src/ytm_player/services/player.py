@@ -162,6 +162,22 @@ class Player:
             except Exception:
                 logger.debug("Failed to enable gapless-audio")
 
+        # Playback buffer: target N seconds of readahead so brief network
+        # or system stalls don't interrupt audio.  mpv begins playback as
+        # soon as it has enough to start and fills the cache in the
+        # background at max network speed.
+        buffer_secs = max(1, settings.playback.buffer_seconds)
+        for _prop, _value in (
+            ("cache", "yes"),
+            ("demuxer-readahead-secs", buffer_secs),
+            ("cache-secs", buffer_secs),
+            ("audio-buffer", 1.0),
+        ):
+            try:
+                instance[_prop] = _value
+            except Exception:
+                logger.debug("Failed to set mpv %s=%s", _prop, _value)
+
         # Register mpv property observers and event handlers.
         instance.observe_property("time-pos", self._on_time_pos_change)
         instance.observe_property("pause", self._on_pause_change)

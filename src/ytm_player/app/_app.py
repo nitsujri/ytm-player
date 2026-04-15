@@ -316,6 +316,14 @@ class YTMPlayerApp(
             # work automatically.
             mac_media_ref = self.mac_media
             self.mac_eventtap.should_dispatch = lambda: not mac_media_ref.is_handling_commands
+            # Resolve AirPods / media-key toggle to an absolute action.
+            # * Playing → "pause" (matches user expectation).
+            # * Paused, with an audio route change in the last few
+            #   seconds → "" (no-op) so AirPods in-ear / AVRCP events
+            #   can't resume a track the user paused.
+            # * Paused, no recent route change → "play" (legitimate
+            #   keyboard F8 press; let it resume).
+            self.mac_eventtap.resolve_play_pause = self._resolve_media_toggle
             tap_started = await self.mac_eventtap.start(callbacks, asyncio.get_running_loop())
             if not tap_started:
                 self.notify(

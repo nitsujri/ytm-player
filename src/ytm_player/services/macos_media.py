@@ -97,9 +97,14 @@ class MacOSMediaService:
         if self._registered_targets:
             return
         center = _MP.MPRemoteCommandCenter.sharedCommandCenter()
+        # AirPods in-ear detection fires togglePlayPauseCommand in both
+        # directions — removal and insertion.  We map it to a one-way
+        # "pause-only" action so pulling an earbud stops playback but
+        # reinserting does NOT auto-resume.  The discrete play command
+        # is still honored (UI / keyboard / explicit user intent).
         self._register_command(center.playCommand(), "play")
         self._register_command(center.pauseCommand(), "pause")
-        self._register_command(center.togglePlayPauseCommand(), "play_pause")
+        self._register_command(center.togglePlayPauseCommand(), "pause_only")
         self._register_command(center.nextTrackCommand(), "next")
         self._register_command(center.previousTrackCommand(), "previous")
 

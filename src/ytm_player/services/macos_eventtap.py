@@ -73,6 +73,12 @@ class MacOSEventTapService:
         self._thread: threading.Thread | None = None
         self._ready = threading.Event()
         self.should_dispatch: Callable[[], bool] = lambda: True
+        # Resolver that maps a PLAY_PAUSE_KEY press to a concrete
+        # "play" or "pause" action based on current playback state.
+        # When set, we dispatch the absolute action instead of the
+        # ambiguous toggle — AirPods in-ear detection and similar
+        # events must never flip a paused player back to playing.
+        self.resolve_play_pause: Callable[[], str] | None = None
 
     async def start(
         self,
@@ -165,7 +171,14 @@ class MacOSEventTapService:
         # play/pause via the command center, once as a toggle here),
         # causing inverted behavior.
         if self.should_dispatch():
-            callback = self._callbacks.get(action)
+            resolved = action
+            if action == "play_pause" and self.resolve_play_pause is not None:
+                try:
+                    resolved = self.resolve_play_pause()
+                except Exception:
+                    logger.debug("resolve_play_pause failed", exc_info=True)
+                    resolved = action
+            callback = self._callbacks.get(resolved)
             if callback is not None and self._loop is not None and not self._loop.is_closed():
                 try:
                     self._loop.call_soon_threadsafe(lambda cb=callback: asyncio.ensure_future(cb()))

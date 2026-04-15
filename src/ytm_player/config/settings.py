@@ -30,6 +30,7 @@ class PlaybackSettings:
     gapless: bool = True
     pause_on_disconnect: bool = True
     api_timeout: int = 15
+    buffer_seconds: int = 5
 
 
 @dataclass
