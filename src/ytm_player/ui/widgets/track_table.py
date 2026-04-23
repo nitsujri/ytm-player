@@ -220,6 +220,11 @@ class TrackTable(DataTable):
         if old_index == new_index:
             return
 
+        # Decide whether to follow the new track. Only auto-scroll if the
+        # user was already on the previously playing row (or no row was
+        # playing) -- otherwise we'd yank them out of the row they're on.
+        was_following = old_index is None or self.cursor_row == old_index
+
         # Restore the old row's original playlist number.
         if old_index is not None and old_index < len(self._row_keys):
             try:
@@ -238,6 +243,16 @@ class TrackTable(DataTable):
                 )
 
         self._playing_index = new_index
+
+        if was_following and new_index is not None and new_index < len(self._row_keys):
+            try:
+                self.move_cursor(row=new_index, animate=False)
+                header_h = self.header_height if self.show_header else 0
+                visible = max(1, self.size.height - header_h)
+                target_y = max(0, new_index - visible // 2)
+                self.scroll_to(y=target_y, animate=False)
+            except Exception:
+                logger.debug("Failed to follow playing row in TrackTable", exc_info=True)
 
     # -- Column resize (drag header border) ------------------------------
 

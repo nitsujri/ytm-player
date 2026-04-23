@@ -78,7 +78,8 @@ class SessionMixin:
             except Exception:
                 pass
 
-        # Auto-resume playback if the previous session exited uncleanly.
+        # Surface the last-playing track in the playback bar so the user can
+        # press space to resume it.
         resume = state.get("resume")
         if resume and isinstance(resume, dict):
             video_id = resume.get("video_id", "")
@@ -121,15 +122,17 @@ class SessionMixin:
         queue_tracks = list(self.queue.tracks)[:500]
         queue_index = self.queue.current_index
 
-        # Build resume data: save current track + position on unclean exit,
-        # explicitly clear on clean exit (q / C-q).
+        # Always remember the last-playing track so spacebar resumes it on
+        # next launch. Clean exits reset position to 0 (start fresh); unclean
+        # exits keep the position so a crash recovery resumes mid-track.
         resume = None
-        if not self._clean_exit and self.player and self.player.current_track:
+        if self.player and self.player.current_track:
             video_id = self.player.current_track.get("video_id", "")
             if video_id:
+                position = 0.0 if self._clean_exit else self.player.position
                 resume = {
                     "video_id": video_id,
-                    "position": self.player.position,
+                    "position": position,
                     "playlist_id": self._active_library_playlist_id,
                 }
 

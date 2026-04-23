@@ -74,6 +74,7 @@ class QueuePage(Widget):
         super().__init__(**kwargs)
         self._row_keys: list[RowKey] = []
         self._track_change_callback: Any = None
+        self._last_current_index: int | None = None
 
     def compose(self) -> ComposeResult:
         yield Vertical(id="queue-header", classes="queue-now-playing")
@@ -154,6 +155,27 @@ class QueuePage(Widget):
                 self._refresh_queue()
                 return
 
+        # Follow the current track only if the user wasn't manually browsing
+        # \u2014 i.e. their cursor was on the previously playing row (or no row
+        # was playing yet).
+        was_following = (
+            self._last_current_index is None or table.cursor_row == self._last_current_index
+        )
+        if was_following and current_index is not None and 0 <= current_index < len(self._row_keys):
+            self._center_on_row(table, current_index)
+        self._last_current_index = current_index
+
+    def _center_on_row(self, table: DataTable, row_index: int) -> None:
+        """Move cursor to *row_index* and scroll so it sits at the middle of the visible area."""
+        try:
+            table.move_cursor(row=row_index, animate=False)
+            header_h = table.header_height if table.show_header else 0
+            visible = max(1, table.size.height - header_h)
+            target_y = max(0, row_index - visible // 2)
+            table.scroll_to(y=target_y, animate=False)
+        except Exception:
+            logger.debug("Failed to center on row %d in queue", row_index, exc_info=True)
+
     # ── Queue rendering ───────────────────────────────────────────────
 
     def _refresh_queue(self) -> None:
@@ -203,6 +225,12 @@ class QueuePage(Widget):
                     key=f"q_{i}",
                 )
                 self._row_keys.append(row_key)
+
+        # Scroll to the currently playing row so it's visible on first paint
+        # and after rebuilds (e.g. opening the queue page after restart).
+        if tracks and current_index is not None and 0 <= current_index < len(self._row_keys):
+            self._center_on_row(table, current_index)
+        self._last_current_index = current_index
 
         self.queue_length = len(tracks)
         self._update_footer()
