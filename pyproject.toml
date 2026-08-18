@@ -1,6 +1,6 @@
 [project]
 name = "ytm-player"
-version = "2.0.0"
+version = "2.0.1"
 description = "A full-featured YouTube Music TUI client for the terminal"
 readme = "README.md"
 requires-python = ">=3.12,<4.0"
@@ -22,7 +22,9 @@ classifiers = [
 dependencies = [
     "textual>=7.0,<8.0",
     "ytmusicapi>=1.11.0",
-    "yt-dlp>=2025.1.0",
+    # YouTube now requires yt-dlp's EJS challenge solver for reliable
+    # signature and n-parameter extraction. The default extra installs it.
+    "yt-dlp[default]>=2025.1.0",
     "python-mpv>=1.0.0",
     "aiosqlite>=0.20.0",
     "click>=8.1.0",

@@ -23,9 +23,15 @@ _CACHE_MAX_SIZE = 128
 
 # Quality presets mapping to yt-dlp format strings.
 QUALITY_FORMATS: dict[str, str] = {
-    "high": "bestaudio/best",
-    "medium": "bestaudio[abr<=128]/bestaudio/best",
-    "low": "bestaudio[abr<=64]/bestaudio/best",
+    # YouTube's direct googlevideo audio URLs can return 403 when consumed
+    # by mpv/FFmpeg because FFmpeg does not send the range request YouTube
+    # expects. The native HLS formats avoid that failure mode.
+    "high": "bestaudio[protocol=m3u8_native]/bestaudio/best",
+    "medium": (
+        "bestaudio[protocol=m3u8_native][abr<=128]/"
+        "bestaudio[abr<=128]/bestaudio/best"
+    ),
+    "low": "bestaudio[protocol=m3u8_native][abr<=64]/bestaudio[abr<=64]/bestaudio/best",
 }
 
 
@@ -83,6 +89,12 @@ class StreamResolver:
             # Avoid writing any files to disk.
             "writeinfojson": False,
             "writethumbnail": False,
+            # web_safari exposes HLS audio formats, which are playable by
+            # mpv's native HLS demuxer. Some tracks do not expose HLS there,
+            # so retain Android/TV fallbacks for those tracks.
+            "extractor_args": {
+                "youtube": {"player_client": ["web_safari", "android", "tv_simply"]}
+            },
         }
         return apply_configured_yt_dlp_options(opts, settings)
 

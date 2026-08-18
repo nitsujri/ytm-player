@@ -105,6 +105,13 @@ class TestStreamQuality:
         resolver = StreamResolver()
         assert resolver.quality == "high"
 
+    def test_uses_hls_audio_for_mpv_compatibility(self):
+        opts = StreamResolver()._build_ydl_opts()
+        assert "protocol=m3u8_native" in opts["format"]
+        assert opts["extractor_args"] == {
+            "youtube": {"player_client": ["web_safari", "android", "tv_simply"]}
+        }
+
     def test_set_valid_quality(self):
         resolver = StreamResolver()
         resolver.quality = "low"
