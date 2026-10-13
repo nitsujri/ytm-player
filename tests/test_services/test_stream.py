@@ -2,7 +2,7 @@
 
 import asyncio
 import time
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -216,6 +216,57 @@ class TestResolveSync:
 
 class TestResolveAsync:
     """Test the async resolve() path with mocked yt-dlp."""
+
+    async def test_cancelling_waiter_does_not_cancel_owner(self):
+        resolver = StreamResolver()
+        started = asyncio.Event()
+        release = asyncio.Event()
+        info = _make_info("shared")
+
+        async def extract(*_args):
+            started.set()
+            await release.wait()
+            return info
+
+        with patch(
+            "ytm_player.services.stream.asyncio.to_thread", new=AsyncMock(side_effect=extract)
+        ):
+            owner = asyncio.create_task(resolver.resolve("shared"))
+            await asyncio.wait_for(started.wait(), timeout=2)
+            waiter = asyncio.create_task(resolver.resolve("shared"))
+            await asyncio.sleep(0)
+            waiter.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await waiter
+            release.set()
+            assert await asyncio.wait_for(owner, timeout=2) is info
+        assert resolver._get_cached("shared") is info
+
+    async def test_cancelling_owner_settles_waiters_and_allows_retry(self):
+        resolver = StreamResolver()
+        started = asyncio.Event()
+        release = asyncio.Event()
+
+        async def extract(*_args):
+            started.set()
+            await release.wait()
+            return _make_info("shared")
+
+        with patch(
+            "ytm_player.services.stream.asyncio.to_thread", new=AsyncMock(side_effect=extract)
+        ):
+            owner = asyncio.create_task(resolver.resolve("shared"))
+            await asyncio.wait_for(started.wait(), timeout=2)
+            waiter = asyncio.create_task(resolver.resolve("shared"))
+            await asyncio.sleep(0)
+            owner.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await owner
+            with pytest.raises(asyncio.CancelledError):
+                await asyncio.wait_for(waiter, timeout=2)
+            assert not resolver._pending
+            release.set()
+            assert await asyncio.wait_for(resolver.resolve("shared"), timeout=2) is not None
 
     async def test_returns_stream_info(self):
         info_dict = _fake_info_dict("asyncVid01")

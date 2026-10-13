@@ -62,8 +62,14 @@ class PlaybackMixin:
                 self._consecutive_failures = 0
             return
 
+        self._play_generation += 1
+        generation = self._play_generation
+
         # Log listen time for the previous track.
         await self._log_current_listen()
+
+        if generation != self._play_generation:
+            return
 
         # Update UI immediately -- show track info before stream resolves.
         try:
@@ -80,7 +86,13 @@ class PlaybackMixin:
             logger.debug("Stream resolution raised for %s", video_id, exc_info=True)
             stream_info = None
 
+        # Superseded failures must not advance the queue or reset the resolver.
+        if generation != self._play_generation:
+            return
+
         if stream_info is None:
+            self._last_play_video_id = ""
+            self._last_play_time = 0.0
             self._consecutive_failures += 1
             title = track.get("title", video_id)
             self.notify(
@@ -110,30 +122,39 @@ class PlaybackMixin:
                 self._consecutive_failures = 0
             return
 
-        self._consecutive_failures = 0
+        # A stale threaded mpv command must finish before a newer one starts.
+        async with self._play_lock:
+            if generation != self._play_generation:
+                return
+            self._consecutive_failures = 0
+            try:
+                await self.player.play(stream_info.url, track)
+            except Exception:
+                logger.debug("player.play() failed for %s", video_id, exc_info=True)
+                if generation != self._play_generation:
+                    return
+                self._last_play_video_id = ""
+                self._last_play_time = 0.0
+                self._consecutive_failures += 1
+                if self._consecutive_failures < _MAX_CONSECUTIVE_FAILURES:
+                    next_track = self.queue.next_track()
+                    if next_track:
+                        self.call_later(lambda: self.run_worker(self.play_track(next_track)))
+                else:
+                    self.stream_resolver.clear_cache()
+                    logger.warning(
+                        "Reset yt-dlp after %d consecutive play failures",
+                        self._consecutive_failures,
+                    )
+                    self.notify(
+                        "Multiple tracks failed — stream resolver reset. Try playing again.",
+                        severity="error",
+                        timeout=6,
+                    )
+                    self._consecutive_failures = 0
+                return
 
-        # Start playback.
-        try:
-            await self.player.play(stream_info.url, track)
-        except Exception:
-            logger.debug("player.play() failed for %s", video_id, exc_info=True)
-            self._consecutive_failures += 1
-            if self._consecutive_failures < _MAX_CONSECUTIVE_FAILURES:
-                next_track = self.queue.next_track()
-                if next_track:
-                    self.call_later(lambda: self.run_worker(self.play_track(next_track)))
-            else:
-                self.stream_resolver.clear_cache()
-                logger.warning(
-                    "Reset yt-dlp after %d consecutive play failures",
-                    self._consecutive_failures,
-                )
-                self.notify(
-                    "Multiple tracks failed — stream resolver reset. Try playing again.",
-                    severity="error",
-                    timeout=6,
-                )
-                self._consecutive_failures = 0
+        if generation != self._play_generation:
             return
         self._track_start_position = 0.0
 
@@ -146,6 +167,9 @@ class PlaybackMixin:
                 duration=stream_info.duration,
             )
 
+        if generation != self._play_generation:
+            return
+
         # Send Last.fm "Now Playing".
         if self.lastfm and self.lastfm.is_connected:
             await self.lastfm.now_playing(
@@ -154,6 +178,9 @@ class PlaybackMixin:
                 album=track.get("album") or "",
                 duration=stream_info.duration,
             )
+
+        if generation != self._play_generation:
+            return
 
         # Update MPRIS metadata.
         if self.mpris:
@@ -166,6 +193,9 @@ class PlaybackMixin:
                 length_us=duration_us,
             )
             await self.mpris.update_playback_status("Playing")
+
+        if generation != self._play_generation:
+            return
 
         # Update macOS Now Playing metadata.
         if self.mac_media:

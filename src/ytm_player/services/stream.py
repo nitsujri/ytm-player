@@ -21,16 +21,24 @@ _CACHE_TTL_SECONDS = 5 * 60 * 60
 # entries are evicted regardless of TTL.
 _CACHE_MAX_SIZE = 128
 
+# Treat a cached URL as stale this many seconds before its actual expiry so
+# playback is never handed a URL that dies mid-stream.  Applied consistently
+# by every read path (_get_cached, is_expired, resolve).
+_EXPIRY_BUFFER_SECONDS = 300
+
+
+def _is_stale(expires_at: float) -> bool:
+    """True when a cached URL has passed, or is within the buffer of, expiry."""
+    return time.time() >= expires_at - _EXPIRY_BUFFER_SECONDS
+
+
 # Quality presets mapping to yt-dlp format strings.
 QUALITY_FORMATS: dict[str, str] = {
     # YouTube's direct googlevideo audio URLs can return 403 when consumed
     # by mpv/FFmpeg because FFmpeg does not send the range request YouTube
     # expects. The native HLS formats avoid that failure mode.
     "high": "bestaudio[protocol=m3u8_native]/bestaudio/best",
-    "medium": (
-        "bestaudio[protocol=m3u8_native][abr<=128]/"
-        "bestaudio[abr<=128]/bestaudio/best"
-    ),
+    "medium": ("bestaudio[protocol=m3u8_native][abr<=128]/bestaudio[abr<=128]/bestaudio/best"),
     "low": "bestaudio[protocol=m3u8_native][abr<=64]/bestaudio[abr<=64]/bestaudio/best",
 }
 
@@ -199,12 +207,12 @@ class StreamResolver:
             return None
 
     def _get_cached(self, video_id: str) -> StreamInfo | None:
-        """Return cached StreamInfo if it exists and hasn't expired."""
+        """Return cached StreamInfo if it exists and isn't (near-)expired."""
         with self._cache_lock:
             cached = self._cache.get(video_id)
             if cached is None:
                 return None
-            if time.time() >= cached.expires_at:
+            if _is_stale(cached.expires_at):
                 del self._cache[video_id]
                 return None
             return cached
@@ -249,8 +257,7 @@ class StreamResolver:
             cached = self._cache.get(video_id)
             if cached is None:
                 return True
-            # Consider expired if within 5 minutes of expiry (buffer for playback).
-            return time.time() >= (cached.expires_at - 300)
+            return _is_stale(cached.expires_at)
 
     async def resolve(self, video_id: str) -> StreamInfo | None:
         """Resolve a video ID to a StreamInfo asynchronously.
@@ -259,18 +266,20 @@ class StreamResolver:
         blocking the event loop. Deduplicates concurrent requests for
         the same video_id.
         """
+        # _get_cached already applies the expiry buffer, so a hit here is fresh
+        # enough to hand to playback; near-expired entries were evicted and fall
+        # through to a fresh resolve below.
         cached = self._get_cached(video_id)
         if cached is not None:
-            # Re-resolve if the URL will expire within 5 minutes.
-            if time.time() < (cached.expires_at - 300):
-                logger.debug("Cache hit for video_id=%s", video_id)
-                return cached
-            logger.debug("Cache entry near-expired for video_id=%s, re-resolving", video_id)
-            self.invalidate(video_id)
+            logger.debug("Cache hit for video_id=%s", video_id)
+            return cached
 
-        # Deduplicate concurrent requests for the same video
+        # Deduplicate concurrent requests for the same video.  Shield the
+        # shared future: cancelling a waiter task would otherwise propagate
+        # into the bare future (Task.cancel cancels what it awaits) and break
+        # the owner's set_result with InvalidStateError.
         if video_id in self._pending:
-            return await self._pending[video_id]
+            return await asyncio.shield(self._pending[video_id])
 
         logger.debug("Cache miss for video_id=%s, resolving via yt-dlp", video_id)
         future: asyncio.Future[StreamInfo | None] = asyncio.get_running_loop().create_future()
@@ -279,13 +288,21 @@ class StreamResolver:
             info = await asyncio.to_thread(self._resolve_sync, video_id)
             if info is not None:
                 self._put_cache(info)
-            future.set_result(info)
+            if not future.done():
+                future.set_result(info)
             return info
         except Exception as exc:
-            future.set_exception(exc)
+            if not future.done():
+                future.set_exception(exc)
             raise
         finally:
             self._pending.pop(video_id, None)
+            if not future.done():
+                # Owner was cancelled before the future resolved (a BaseException
+                # such as CancelledError bypasses the except above).  Cancel the
+                # shared future so concurrent waiters get CancelledError instead
+                # of hanging forever on an orphaned, never-resolved future.
+                future.cancel()
 
     async def prefetch(self, video_id: str) -> None:
         """Resolve a video ID in the background without blocking the caller.

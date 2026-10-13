@@ -157,6 +157,10 @@ class YTMPlayerApp(
         # Debounce rapid play_track calls (e.g. double-click).
         self._last_play_video_id: str = ""
         self._last_play_time: float = 0.0
+        # Newer play requests supersede older resolutions and metadata updates.
+        self._play_generation: int = 0
+        # Serialize the generation check and the threaded mpv play command.
+        self._play_lock = asyncio.Lock()
 
         # Reference to the position poll timer (for cleanup).
         self._poll_timer = None
