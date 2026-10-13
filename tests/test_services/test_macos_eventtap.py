@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import asyncio
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import AsyncMock, Mock, patch
+
+import pytest
 
 from ytm_player.services.macos_eventtap import MacOSEventTapService, _event_action
 
@@ -23,6 +25,15 @@ class _FakeNSEvent:
 
 def _media_data1(key_code: int, state: int) -> int:
     return (key_code << 16) | (state << 8)
+
+
+def _fake_quartz():
+    return SimpleNamespace(
+        NSSystemDefined=14,
+        kCGEventTapDisabledByTimeout=0xFFFFFFFE,
+        kCGEventTapDisabledByUserInput=0xFFFFFFFF,
+        CGEventTapEnable=Mock(),
+    )
 
 
 class TestEventAction:
@@ -62,7 +73,7 @@ class TestTapCallback:
         fake_appkit = SimpleNamespace(
             NSEvent=SimpleNamespace(eventWithCGEvent_=lambda _event: ns_event)
         )
-        fake_quartz = SimpleNamespace(NSSystemDefined=14)
+        fake_quartz = _fake_quartz()
 
         with (
             patch("ytm_player.services.macos_eventtap.AppKit", fake_appkit),
@@ -86,7 +97,7 @@ class TestTapCallback:
         fake_appkit = SimpleNamespace(
             NSEvent=SimpleNamespace(eventWithCGEvent_=lambda _event: ns_event)
         )
-        fake_quartz = SimpleNamespace(NSSystemDefined=14)
+        fake_quartz = _fake_quartz()
 
         with (
             patch("ytm_player.services.macos_eventtap.AppKit", fake_appkit),
@@ -95,3 +106,51 @@ class TestTapCallback:
             result = svc._tap_callback(None, 14, source_event, None)
 
         assert result is None
+
+    @pytest.mark.parametrize("resolved", ["play", "pause", ""])
+    async def test_resolves_toggle_without_dispatching_twice(self, resolved) -> None:
+        svc = MacOSEventTapService()
+        svc._running = True
+        svc._loop = asyncio.get_running_loop()
+        svc.resolve_play_pause = lambda: resolved
+        callbacks = {action: AsyncMock() for action in ("play", "pause", "play_pause")}
+        svc._callbacks = callbacks
+        ns_event = _FakeNSEvent(8, _media_data1(16, 0xA))
+        fake_appkit = SimpleNamespace(
+            NSEvent=SimpleNamespace(eventWithCGEvent_=lambda _event: ns_event)
+        )
+
+        with (
+            patch("ytm_player.services.macos_eventtap.AppKit", fake_appkit),
+            patch("ytm_player.services.macos_eventtap.Quartz", _fake_quartz()),
+        ):
+            assert svc._tap_callback(None, 14, object(), None) is None
+
+        await asyncio.sleep(0)
+        await asyncio.sleep(0)
+        for action, callback in callbacks.items():
+            assert callback.await_count == (1 if action == resolved else 0)
+
+    @pytest.mark.parametrize("disabled_type", [0xFFFFFFFE, 0xFFFFFFFF])
+    def test_reenables_disabled_tap(self, disabled_type) -> None:
+        svc = MacOSEventTapService()
+        svc._running = True
+        svc._tap = object()
+        event = object()
+        fake_quartz = _fake_quartz()
+
+        with patch("ytm_player.services.macos_eventtap.Quartz", fake_quartz):
+            assert svc._tap_callback(None, disabled_type, event, None) is event
+
+        fake_quartz.CGEventTapEnable.assert_called_once_with(svc._tap, True)
+
+    def test_does_not_reenable_stopped_tap(self) -> None:
+        svc = MacOSEventTapService()
+        svc._tap = object()
+        event = object()
+        fake_quartz = _fake_quartz()
+
+        with patch("ytm_player.services.macos_eventtap.Quartz", fake_quartz):
+            assert svc._tap_callback(None, 0xFFFFFFFE, event, None) is event
+
+        fake_quartz.CGEventTapEnable.assert_not_called()

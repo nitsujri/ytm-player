@@ -5,6 +5,8 @@ from __future__ import annotations
 import asyncio
 import logging
 
+from textual.widgets import ListView
+
 from ytm_player.ui.header_bar import HeaderBar
 from ytm_player.ui.popups.actions import ActionsPopup
 from ytm_player.ui.sidebars.lyrics_sidebar import LyricsSidebar
@@ -17,6 +19,17 @@ class SidebarMixin:
     """Sidebar toggling and playlist sidebar event handlers."""
 
     # ── Sidebar toggling ────────────────────────────────────────────
+
+    def _focus_playlist_sidebar(self) -> None:
+        """Reveal the playlist list and give it keyboard focus."""
+        page = self._current_page or "library"
+        self._sidebar_per_page[page] = True
+        self._apply_playlist_sidebar(True)
+        sidebar = self.query_one("#playlist-sidebar", PlaylistSidebar)
+        list_view = sidebar.query_one("#ps-playlists-list", ListView)
+        if list_view.index is None and list_view.children:
+            list_view.index = 0
+        list_view.focus()
 
     def _toggle_playlist_sidebar(self) -> None:
         """Toggle the playlist sidebar for the current page."""

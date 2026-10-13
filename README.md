@@ -341,7 +341,7 @@ ytm queue clear    # Clear queue
 | `+` / `-` | Volume up/down |
 | `j` / `k` | Move down/up |
 | `enter` | Select/play |
-| `g l` | Go to Library |
+| `g l` | Go to Library and focus playlists |
 | `g s` | Go to Search |
 | `g b` | Go to Browse |
 | `z` | Go to Queue |

@@ -44,7 +44,7 @@ ACTION_DESCRIPTIONS: dict[Action, str] = {
     Action.GO_BACK: "Go back / close page",
     Action.CLOSE_POPUP: "Close popup / cancel",
     # Pages
-    Action.LIBRARY: "Go to library",
+    Action.LIBRARY: "Go to library and focus playlists",
     Action.SEARCH: "Go to search",
     Action.BROWSE: "Go to browse",
     Action.LIKED_SONGS: "Go to liked songs",

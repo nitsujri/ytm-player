@@ -9,6 +9,7 @@ from textual.events import Key
 from ytm_player.config import Action, MatchResult
 from ytm_player.ui.playback_bar import PlaybackBar
 from ytm_player.ui.sidebars.lyrics_sidebar import LyricsSidebar
+from ytm_player.ui.sidebars.playlist_sidebar import PlaylistSidebar
 
 logger = logging.getLogger(__name__)
 
@@ -118,6 +119,25 @@ class KeyHandlingMixin:
         if action is None:
             return
 
+        # The persistent sidebar is outside the current page. Route its
+        # navigation keys here rather than to that page's track table.
+        if action in (
+            Action.MOVE_DOWN,
+            Action.MOVE_UP,
+            Action.PAGE_DOWN,
+            Action.PAGE_UP,
+            Action.GO_TOP,
+            Action.GO_BOTTOM,
+            Action.SELECT,
+            Action.FILTER,
+        ):
+            focused = self.focused
+            if focused is not None:
+                for ancestor in focused.ancestors:
+                    if isinstance(ancestor, PlaylistSidebar):
+                        ancestor.handle_sidebar_action(action, count)
+                        return
+
         match action:
             # -- Playback controls --
             case Action.PLAY_PAUSE:
@@ -173,7 +193,9 @@ class KeyHandlingMixin:
 
             # -- Page navigation --
             case Action.LIBRARY:
-                await self.navigate_to("library")
+                if self.current_page_name != "library":
+                    await self.navigate_to("library")
+                self._focus_playlist_sidebar()
             case Action.SEARCH:
                 await self.navigate_to("search")
             case Action.QUEUE:
@@ -200,6 +222,12 @@ class KeyHandlingMixin:
 
             case Action.GO_BACK:
                 await self.navigate_to("back")
+
+            case Action.FOCUS_NEXT:
+                self.action_focus_next()
+
+            case Action.FOCUS_PREV:
+                self.action_focus_previous()
 
             case Action.CLOSE_POPUP:
                 # Dismiss active popup if any; otherwise ignore.
@@ -232,8 +260,6 @@ class KeyHandlingMixin:
                 | Action.GO_TOP
                 | Action.GO_BOTTOM
                 | Action.SELECT
-                | Action.FOCUS_NEXT
-                | Action.FOCUS_PREV
                 | Action.CONTEXT_ACTIONS
                 | Action.SELECTED_ACTIONS
                 | Action.ADD_TO_QUEUE

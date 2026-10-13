@@ -8,6 +8,8 @@ import asyncio
 import logging
 from unittest.mock import AsyncMock, patch
 
+import pytest
+
 import ytm_player.services.macos_media as macos_media
 from ytm_player.services.macos_media import MacOSMediaService
 
@@ -98,6 +100,36 @@ def _reset_fake_media_player() -> None:
 
 
 class TestStart:
+    @pytest.mark.parametrize(
+        ("command", "action"),
+        [
+            ("play", "play"),
+            ("pause", "pause"),
+            ("toggle", "pause_only"),
+            ("next", "next"),
+            ("previous", "previous"),
+        ],
+    )
+    async def test_airpods_command_mapping_is_preserved(self, command, action) -> None:
+        _reset_fake_media_player()
+        callbacks = {
+            name: AsyncMock()
+            for name in ("play", "pause", "pause_only", "play_pause", "next", "previous")
+        }
+        svc = MacOSMediaService()
+        with (
+            patch("ytm_player.services.macos_media._MEDIA_PLAYER_AVAILABLE", True),
+            patch("ytm_player.services.macos_media._MP", _FakeMediaPlayerModule),
+        ):
+            await svc.start(callbacks, asyncio.get_running_loop())
+            handler = getattr(_FakeMediaPlayerModule._remote, command).handler
+            assert handler(None) == macos_media._STATUS_SUCCESS
+            await asyncio.sleep(0)
+            await asyncio.sleep(0)
+            for name, callback in callbacks.items():
+                assert callback.await_count == (1 if name == action else 0)
+            svc.stop()
+
     async def test_noop_when_framework_missing(self, caplog) -> None:
         svc = MacOSMediaService()
         with (

@@ -39,6 +39,10 @@ class LibraryPanel(Widget):
         padding: 0 1;
     }
 
+    LibraryPanel:focus-within {
+        border: solid $primary;
+    }
+
     LibraryPanel .panel-title {
         text-style: bold;
         color: $text;
@@ -463,9 +467,11 @@ class PlaylistSidebar(Widget):
             case Action.PAGE_UP:
                 list_view.action_scroll_up()
             case Action.GO_TOP:
-                list_view.action_first()
+                if list_view.children:
+                    list_view.index = 0
             case Action.GO_BOTTOM:
-                list_view.action_last()
+                if list_view.children:
+                    list_view.index = len(list_view.children) - 1
             case Action.SELECT:
                 list_view.action_select_cursor()
             case Action.FILTER:

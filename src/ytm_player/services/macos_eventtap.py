@@ -72,7 +72,6 @@ class MacOSEventTapService:
         self._run_loop: Any = None
         self._thread: threading.Thread | None = None
         self._ready = threading.Event()
-        self.should_dispatch: Callable[[], bool] = lambda: True
         # Resolver that maps a PLAY_PAUSE_KEY press to a concrete
         # "play" or "pause" action based on current playback state.
         # When set, we dispatch the absolute action instead of the
@@ -157,7 +156,16 @@ class MacOSEventTapService:
             logger.debug("Failed to invalidate macOS event tap", exc_info=True)
 
     def _tap_callback(self, _proxy: Any, event_type: int, event: Any, _refcon: Any) -> Any:
-        if not self._running or event_type != Quartz.NSSystemDefined:
+        if not self._running:
+            return event
+        if event_type in (
+            Quartz.kCGEventTapDisabledByTimeout,
+            Quartz.kCGEventTapDisabledByUserInput,
+        ):
+            if self._tap is not None:
+                Quartz.CGEventTapEnable(self._tap, True)
+            return event
+        if event_type != Quartz.NSSystemDefined:
             return event
 
         ns_event = AppKit.NSEvent.eventWithCGEvent_(event)
@@ -165,25 +173,24 @@ class MacOSEventTapService:
         if action is None:
             return event
 
-        # Only dispatch when MPRemoteCommandCenter isn't already handling
-        # the same commands — otherwise AirPods in-ear detection and
-        # similar events get processed twice (once as a discrete
-        # play/pause via the command center, once as a toggle here),
-        # causing inverted behavior.
-        if self.should_dispatch():
-            resolved = action
-            if action == "play_pause" and self.resolve_play_pause is not None:
-                try:
-                    resolved = self.resolve_play_pause()
-                except Exception:
-                    logger.debug("resolve_play_pause failed", exc_info=True)
-                    resolved = action
-            callback = self._callbacks.get(resolved)
-            if callback is not None and self._loop is not None and not self._loop.is_closed():
-                try:
-                    self._loop.call_soon_threadsafe(lambda cb=callback: asyncio.ensure_future(cb()))
-                except RuntimeError:
-                    logger.debug("Event loop closed, cannot dispatch macOS event-tap key")
+        # Swallowing this event prevents it reaching the system's remote
+        # command routing. Dispatch it here even when Now Playing handlers
+        # are registered; registration does not mean they received the key.
+        # AirPods commands delivered directly to MPRemoteCommandCenter keep
+        # their existing handlers.
+        resolved = action
+        if action == "play_pause" and self.resolve_play_pause is not None:
+            try:
+                resolved = self.resolve_play_pause()
+            except Exception:
+                logger.debug("resolve_play_pause failed", exc_info=True)
+                resolved = action
+        callback = self._callbacks.get(resolved)
+        if callback is not None and self._loop is not None and not self._loop.is_closed():
+            try:
+                self._loop.call_soon_threadsafe(lambda cb=callback: asyncio.ensure_future(cb()))
+            except RuntimeError:
+                logger.debug("Event loop closed, cannot dispatch macOS event-tap key")
 
         # Always swallow so Apple Music does not steal media-key presses.
         return None
