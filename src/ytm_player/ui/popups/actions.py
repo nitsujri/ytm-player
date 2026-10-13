@@ -8,6 +8,7 @@ from typing import Any
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Vertical
+from textual.events import Key
 from textual.screen import ModalScreen
 from textual.widgets import Label, ListItem, ListView, Static
 
@@ -214,8 +215,10 @@ class ActionsPopup(ModalScreen[str | None]):
         if isinstance(item, _ActionItem):
             self.dismiss(item.action_id)
 
-    def key_enter(self) -> None:
-        """Fallback: select the highlighted item on Enter."""
+    def key_enter(self, event: Key) -> None:
+        """Select the highlighted action without selecting the underlying row."""
+        event.stop()
+        event.prevent_default()
         list_view = self.query_one("#actions-list", ListView)
         if list_view.highlighted_child is not None:
             item = list_view.highlighted_child
