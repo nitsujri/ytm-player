@@ -20,7 +20,7 @@ finally:
 
 class PlaybackHost(PlaybackMixin):
     def __init__(self):
-        self.player = SimpleNamespace(play=AsyncMock())
+        self.player = SimpleNamespace(play=AsyncMock(), current_track=None)
         self.stream_resolver = SimpleNamespace(resolve=AsyncMock(), clear_cache=MagicMock())
         self.queue = SimpleNamespace(next_track=MagicMock(return_value=None))
         self._last_play_video_id = ""

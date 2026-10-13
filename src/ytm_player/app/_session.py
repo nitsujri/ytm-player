@@ -15,8 +15,8 @@ logger = logging.getLogger(__name__)
 class SessionMixin:
     """Persist and restore session state (volume, shuffle, repeat, queue, etc.)."""
 
-    async def _restore_session_state(self) -> None:
-        """Restore volume, shuffle, and repeat from the last session."""
+    def _load_session_state(self) -> dict:
+        """Read the saved session, treating invalid JSON as an empty session."""
         from ytm_player.config.paths import SESSION_STATE_FILE
 
         state: dict = {}
@@ -25,6 +25,20 @@ class SessionMixin:
                 state = json.loads(SESSION_STATE_FILE.read_text(encoding="utf-8"))
         except Exception:
             logger.debug("Could not read session state", exc_info=True)
+
+        if not isinstance(state, dict):
+            logger.warning("Discarding session state — not a JSON object")
+            return {}
+        return state
+
+    async def _restore_session_state(self) -> None:
+        """Restore runtime state without losing an untouched resume point."""
+        state = self._load_session_state()
+        loaded_resume = state.get("resume")
+        if isinstance(loaded_resume, dict) and loaded_resume.get("video_id"):
+            self._loaded_resume = dict(loaded_resume)
+        else:
+            self._loaded_resume = None
 
         volume = state.get("volume", self.settings.playback.default_volume)
         await self.player.set_volume(volume)
@@ -107,9 +121,15 @@ class SessionMixin:
                                 exc_info=True,
                             )
 
+        self._session_restored = True
+
     def _save_session_state(self) -> None:
         """Persist volume, shuffle, and repeat to disk."""
         from ytm_player.config.paths import SESSION_STATE_FILE
+
+        if not self._session_restored:
+            logger.warning("Session was never restored this run — not overwriting session.json")
+            return
 
         volume = 80
         if self.player:
@@ -135,6 +155,10 @@ class SessionMixin:
                     "position": position,
                     "playlist_id": self._active_library_playlist_id,
                 }
+
+        # An untouched or unsuccessful play attempt keeps the prior resume point.
+        if resume is None and self._loaded_resume is not None:
+            resume = self._loaded_resume
 
         state = {
             "volume": volume,

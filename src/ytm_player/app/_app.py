@@ -161,6 +161,10 @@ class YTMPlayerApp(
         self._play_generation: int = 0
         # Serialize the generation check and the threaded mpv play command.
         self._play_lock = asyncio.Lock()
+        # Preserve the prior resume point until playback accepts a track.
+        self._loaded_resume: dict | None = None
+        # Failed startup must not overwrite the saved session.
+        self._session_restored: bool = False
 
         # Reference to the position poll timer (for cleanup).
         self._poll_timer = None

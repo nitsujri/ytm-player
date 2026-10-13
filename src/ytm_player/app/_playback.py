@@ -157,6 +157,9 @@ class PlaybackMixin:
         if generation != self._play_generation:
             return
         self._track_start_position = 0.0
+        # Player.play reports rejected loads by clearing current_track.
+        if self.player.current_track is not None:
+            self._loaded_resume = None
 
         # Update Discord Rich Presence.
         if self.discord and self.discord.is_connected:
